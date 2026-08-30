@@ -1,0 +1,55 @@
+.DS_Store
+
+# Rhino documents and Grasshopper byproducts. Canvases (*.gh) are NOT blanket
+# ignored: a `!path` re-inclusion after a `*.gh` rule still reads as ignored to
+# VS Code and to Claude Code, which makes the tracked canvases unusable in both.
+# So .gh is tracked normally and the scratchpads are named one by one below.
+*.3dm
+*.3dmbak
+*.3dm.rhl
+*.ghbak
+*.ghx
+
+# Scratch canvases -- working rigs and probes, not content. A forge rig is built
+# by tooling/build-forge-rig.cs rather than saved, so nothing here is a source of
+# truth. Add a line per scratchpad; do not reach for a *.gh wildcard.
+/scratch.gh
+
+# Icon build intermediates. The committed artifacts are the source SVGs
+# (icons/*.svg, examples/icons/*.svg, script-forge/*.svg); the rasterized PNGs
+# are regenerated on demand (sips, driven by gh_codegen.py / Script Forge).
+icons/*.png
+examples/icons/*.png
+script-forge/*.png
+
+# Local shelf for built .gha / .yak binaries. Nothing in the pipeline reads or
+# writes it. Shipped binaries are attached to GitHub Releases, which keeps them
+# out of the git object database — see docs/ship-a-plugin/publishing.md.
+script-forge/Releases/
+
+# Codegen + build output. build/gen/ is rmtree'd and rebuilt by gh_codegen.py
+# on every run; build/yak/ is the .yak packaging staging area.
+build/
+ScriptEditor.log
+
+# .NET build intermediates for script-forge/src/ScriptForge/ — only its two
+# hand-written scaffolding files (the csproj and ScriptForgeInfo.cs) are tracked.
+script-forge/src/**/bin/
+script-forge/src/**/obj/
+
+# Tooling intermediates
+tooling/canvas-dump.json
+__pycache__/
+*.pyc
+
+# .NET build intermediates for script-forge/tooling/fixture-runner/ — the
+# project files (FixtureRunner.csproj, Program.cs) are tracked, its own build
+# output is not.
+script-forge/tooling/fixture-runner/bin/
+script-forge/tooling/fixture-runner/obj/
+
+# Claude plan scratch — local only.
+.claude/plans/
+
+# Per-clone Claude Code permission overrides — machine-specific, not shared.
+.claude/settings.local.json

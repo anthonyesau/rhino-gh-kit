@@ -1,0 +1,73 @@
+---
+# Yak package manifest for Script Forge.
+#
+# The package name is deliberately NOT tied to anything else. Couple it to the
+# ribbon tab and a component sitting under Grasshopper's native "Params" tab
+# forces the package to be called "Params" too, colliding with any other plugin
+# wanting that tab. The three are independent here:
+#
+#   ribbon tab   Params > Util     from the component's own category/subcategory
+#   assembly     ScriptForge.gha   from <AssemblyName> in ScriptForge.csproj
+#   package      ScriptForge       this file, and nothing else reads it
+#
+# The package name is also the only thing Rhino's Package Manager shows as the
+# entry's *name*: there is no separate display-name key in the yak manifest
+# (Yak.Core's manifest model has Name/Version/Authors/Description/Url/Keywords/
+# Icon/Platform and nothing else). So the name has to carry the display, and it
+# cannot be `Script Forge`: `yak build` and `yak search` accept a space, but
+# `yak install "Script Forge" <version>` prints usage and bails — verified
+# 2026-08-22 against yak 8.x — which would break `tooling/publish.sh install`
+# outright. `ScriptForge` is the closest installable spelling and is what the
+# entry reads as.
+#
+# NOTE: `tooling/publish.sh install` packages this and installs it out of a
+# local folder repository ($YAK_LOCAL_REPO), which gives versioned, upgradeable
+# installs without the package ever reaching yak.rhino3d.com. Nothing has been
+# pushed under this name, and `push` is a deliberate, separate decision that
+# would open a new package line on the Yak server, superseding nothing — that
+# decision has not been made.
+name: ScriptForge
+
+# Keep in step with <Version> in src/ScriptForge/ScriptForge.csproj — that is
+# what the compiled assembly reports to Grasshopper's plugin list, via
+# ScriptForgeInfo.AssemblyVersion reading the informational version the SDK
+# stamps from it (a numeric assembly version cannot hold `-beta`). The manifest
+# is what the Yak server indexes, and a drift between the two is invisible until
+# someone tries to work out which build they are running. tooling/publish.sh
+# checks they match and refuses to build if they have not.
+#
+# Deliberately NOT kept in step with .claude-plugin/plugin.json's version.
+# That one is a mechanical release gate — claude plugin update is version-
+# gated, so it bumps on nearly every commit regardless of whether this
+# compiled component changed at all. Bumping this version in lockstep would
+# mean re-versioning Script Forge for doc/skill edits that never touch
+# script-forge.cs — noise, not signal. This number moves only when Script
+# Forge's own behavior (or build) actually changes, which is what lets an
+# installed version identify one specific build. Setting the two equal is the
+# failure mode: the slower number then either gets dragged along or freezes
+# while real fixes ship under it.
+version: 0.4.2-beta
+
+authors:
+  - Anthony Esau
+
+description: >
+  Builds or updates Grasshopper script components from source text or source
+  files. Feed it .cs / .py sources carrying an @component header and it forges
+  live C# and Python 3 components complete with params, type hints, identity,
+  per-param tooltips and icons. Installs under the native Params tab, in the
+  Util panel.
+
+url: https://github.com/anthonyesau/rhino-gh-kit
+
+# Rasterized from script-forge/script-forge.svg at 128px by tooling/publish.sh and
+# staged next to the .gha — this is the Package Manager entry's icon, not the
+# component's 24px canvas icon (which the build embeds as a resource instead).
+icon: icon.png
+
+keywords:
+  - grasshopper
+  - script
+  - csharp
+  - python
+  - codegen

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Dark-theme variant of script-forge.svg. Structurally identical; only the
+     near-black inks are swapped for the light ink this project uses elsewhere
+     (#e8e8e8, matching examples/icons/*-dark.svg). The warm tones — #c30000,
+     #ff8000 and the #ffb700 sparks — already read on a dark canvas and are
+     left alone, so the hot-metal gradient still runs cool-to-hot. -->
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" viewBox="0 0 24 24">
+  <defs>
+    <style>
+      .st0, .st1, .st2, .st3, .st4, .st5, .st6 {
+        fill: none;
+      }
+
+      .st1 {
+        stroke: #e8e8e8;
+      }
+
+      .st1, .st2, .st3, .st4, .st5, .st6 {
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.4px;
+      }
+
+      .st2 {
+        stroke: url(#linear-gradient);
+      }
+
+      .st3 {
+        stroke: url(#linear-gradient2);
+      }
+
+      .st4 {
+        stroke: url(#linear-gradient1);
+      }
+
+      .st5 {
+        stroke: url(#linear-gradient3);
+      }
+
+      .st6 {
+        stroke: #ffb700;
+      }
+    </style>
+    <linearGradient id="linear-gradient" x1="3.7" y1="21.8" x2="13.3" y2="12.2" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e8e8e8"/>
+      <stop offset=".5" stop-color="#c30000"/>
+      <stop offset="1" stop-color="#ff8000"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient1" x1=".5" y1="15.5" x2="3.7" y2="15.5" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e8e8e8"/>
+      <stop offset="1" stop-color="#c30000"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient2" y1="18.5" y2="18.5" xlink:href="#linear-gradient1"/>
+    <linearGradient id="linear-gradient3" x1="16.5" y1="17" x2="13.3" y2="17" xlink:href="#linear-gradient1"/>
+  </defs>
+  <rect class="st0" width="24" height="24"/>
+  <g>
+    <rect class="st2" x="3" y="13" width="11" height="8" rx="1.5" ry="1.5"/>
+    <path class="st1" d="M13.5,5.5l4,4,2.5-2.5-4-4-2.5,2.5Z"/>
+    <line class="st1" x1="18.7" y1="8.2" x2="23.1" y2="12.6"/>
+    <line class="st6" x1="11.2" y1="10.8" x2="12.4" y2="9.6"/>
+    <line class="st6" x1="8.6" y1="9.6" x2="9.2" y2="8"/>
+    <line class="st4" x1="1.2" y1="15.5" x2="3" y2="15.5"/>
+    <line class="st3" x1="1.2" y1="18.5" x2="3" y2="18.5"/>
+    <line class="st5" x1="14" y1="17" x2="15.8" y2="17"/>
+  </g>
+</svg>

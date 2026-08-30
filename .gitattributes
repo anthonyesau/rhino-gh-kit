@@ -1,0 +1,5 @@
+# Grasshopper canvases and Rhino documents are compressed binary: never
+# line-ending-normalized, never text-diffed.
+*.gh binary
+*.ghx binary
+*.3dm binary

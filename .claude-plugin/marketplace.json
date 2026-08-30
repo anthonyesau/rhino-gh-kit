@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "rhino-gh-kit",
+  "description": "Marketplace hosting the rhino-gh-kit plugin for authoring inline Rhino 8 Grasshopper C# Script components.",
+  "owner": { "name": "anthonyesau" },
+  "plugins": [
+    {
+      "name": "rhino-gh-kit",
+      "source": "./",
+      "description": "Skills, metadata-header tooling, and a workflow guard hook for authoring inline Grasshopper C# and Python 3 Script components through Script Forge."
+    }
+  ]
+}

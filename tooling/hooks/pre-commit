@@ -1,0 +1,137 @@
+#!/bin/bash
+# Auto-bumps .claude-plugin/plugin.json's patch version when a commit touches
+# skills/, commands/, docs/, tooling/, hooks/, examples/, or the
+# script-forge/docs/ + script-forge/tooling/ subpaths a skill also reaches by
+# ${CLAUDE_PLUGIN_ROOT} (forge-push points at
+# docs/use-the-forge/script-forge.md) — the paths README.md's "The
+# model" section says reach a session only through the install cache (skills
+# and commands invoke tooling by its ${CLAUDE_PLUGIN_ROOT} path, so a
+# tooling-only change is just as unreachable without a bump; hooks/ ships the
+# workflow guard, and commands/rhino-gh-kit-init.md plus both language skills cite
+# examples/ by that same path). claude plugin
+# update is version-gated, so an unbumped version leaves every consuming
+# project frozen on stale content no matter how many times this repo is
+# pushed (verified 2026-08-14: a cache sat behind a real commit because the
+# version field didn't move with it). Skips silently if the version was
+# already bumped by hand in this commit (e.g. a deliberate minor/major).
+set -e
+
+PLUGIN_JSON=".claude-plugin/plugin.json"
+
+# Each section below is a function, because the plugin bump returns early in the
+# common case and a bare `exit 0` there would skip every later check.
+bump_plugin_version() {
+
+changed_cache_served=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^(skills|commands|docs|tooling|hooks|examples)/|^script-forge/(docs|tooling)/' || true)
+if [ -z "$changed_cache_served" ]; then return 0; fi
+
+head_version=$(git show "HEAD:$PLUGIN_JSON" 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo "")
+staged_version=$(git show ":$PLUGIN_JSON" 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo "")
+
+if [ -z "$staged_version" ]; then return 0; fi
+if [ -n "$head_version" ] && [ "$head_version" != "$staged_version" ]; then return 0; fi
+
+new_version=$(python3 -c "
+core, sep, suffix = '$staged_version'.partition('-')
+v = core.split('.')
+v[-1] = str(int(v[-1]) + 1)
+print('.'.join(v) + sep + suffix)
+")
+
+python3 -c "
+import json
+with open('$PLUGIN_JSON') as f:
+    data = json.load(f)
+data['version'] = '$new_version'
+with open('$PLUGIN_JSON', 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+"
+
+git add "$PLUGIN_JSON"
+echo "pre-commit: bumped plugin.json $staged_version -> $new_version (cache-served path changed)"
+
+}
+
+# ---------------------------------------------------------------------------
+# Script Forge version gate.
+#
+# Deliberately a GATE, not an auto-bump. The plugin version above is mechanical
+# — every cache-served change must move it, so a hook can do that unattended.
+# The package version is a judgement: it should move when the *component*
+# changes, and only a person knows whether an edit to script-forge.cs is a real
+# change or a reworded comment. Auto-bumping would make the number noisy in the
+# other direction, which is the failure yak/manifest.yml's header describes.
+#
+# So this refuses the commit and makes you decide. For an edit that genuinely
+# does not reach a user:  FORGE_NO_BUMP=1 git commit …
+MANIFEST="script-forge/yak/manifest.yml"
+CSPROJ="script-forge/src/ScriptForge/ScriptForge.csproj"
+
+# $1 is a rev PREFIX: "HEAD" for the last commit, "" (empty) for the index —
+# the index is addressed by a bare ":path", so passing ":" here builds "::path",
+# which silently returns nothing and makes every version look changed.
+manifest_version_at() { git show "$1:$MANIFEST" 2>/dev/null | awk '/^version:/ {print $2; exit}'; }
+csproj_version_at()   { git show "$1:$CSPROJ"   2>/dev/null | sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' | head -1; }
+
+check_forge_version() {
+  # Paths whose content reaches the shipped .gha: the source, the .NET project,
+  # and the icon the build embeds as a resource.
+  local changed head_pkg staged_pkg
+  changed=$(git diff --cached --name-only --diff-filter=ACMR \
+    | grep -E '^script-forge/(script-forge\.cs|script-forge.*\.svg|src/)' || true)
+  if [ -z "$changed" ]; then return 0; fi
+  if [ -n "${FORGE_NO_BUMP:-}" ]; then
+    echo "pre-commit: FORGE_NO_BUMP set — Script Forge version gate skipped."
+    return 0
+  fi
+
+  head_pkg=$(manifest_version_at HEAD)
+  staged_pkg=$(manifest_version_at "")
+  if [ -z "$head_pkg" ]; then return 0; fi
+  if [ "$head_pkg" != "$staged_pkg" ]; then return 0; fi
+
+  echo "pre-commit: REFUSING — Script Forge source changed but its version did not." >&2
+  echo "" >&2
+  echo "  changed: $(echo "$changed" | tr '\n' ' ')" >&2
+  echo "  version: $staged_pkg (unchanged since HEAD)" >&2
+  echo "" >&2
+  echo "  A package version that does not move when the package does stops" >&2
+  echo "  identifying any one build. Bump BOTH, keeping them equal:" >&2
+  echo "    $MANIFEST   version:" >&2
+  echo "    $CSPROJ   <Version>" >&2
+  echo "" >&2
+  echo "  If this edit genuinely does not reach a user (a comment, say):" >&2
+  echo "    FORGE_NO_BUMP=1 git commit …" >&2
+  return 1
+}
+
+check_versions_agree() {
+  # The two surfaces must agree in every commit, not merely by the time
+  # publish.sh runs — a commit that splits them is one nobody can build.
+  local a b
+  a=$(manifest_version_at ""); b=$(csproj_version_at "")
+  if [ -z "$a" ] || [ -z "$b" ]; then return 0; fi
+  if [ "$a" = "$b" ]; then return 0; fi
+  echo "pre-commit: REFUSING — Script Forge version mismatch." >&2
+  echo "  $MANIFEST = $a" >&2
+  echo "  $CSPROJ = $b" >&2
+  echo "  publish.sh refuses to build these; keep them equal." >&2
+  return 1
+}
+
+warn_if_hook_is_stale() {
+  # Git hooks are not tracked, so an installed copy rots silently while the
+  # source of truth moves. Warn rather than fail: a stale hook still works.
+  if [ ! -f tooling/hooks/pre-commit ]; then return 0; fi
+  if cmp -s "$0" tooling/hooks/pre-commit; then return 0; fi
+  echo "pre-commit: NOTE — the installed hook differs from tooling/hooks/pre-commit." >&2
+  echo "  Refresh it:  cp tooling/hooks/pre-commit .git/hooks/pre-commit" >&2
+  return 0
+}
+
+bump_plugin_version
+check_forge_version || exit 1
+check_versions_agree || exit 1
+warn_if_hook_is_stale
+exit 0

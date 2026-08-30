@@ -1,0 +1,3 @@
+audit-fixtures/remap-cs.cs
+this-is-not-a-path-line
+audit-fixtures/hashcomment-py.py

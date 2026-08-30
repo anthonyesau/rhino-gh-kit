@@ -1,0 +1,82 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A dev-only test harness, not a shipped artifact: it never compiles into
+       ScriptForge.gha. Its SOURCE is permanent, tracked repo content like any
+       other tooling file; only its own bin/obj build output is disposable
+       (gitignored), same as any other .NET project here. It exists to run
+       script-forge.cs's own header parser (ParseHeader / WarnDriftAndQuotes)
+       standalone, outside Grasshopper, so tooling/test_fixtures.py can compare
+       its verdicts against gh_meta.py's on the same fixture set. See
+       docs/ship-a-plugin/dotnet-build.md's "Testing" section. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <NoWarn>NU1701;NETSDK1086</NoWarn>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Deliberately UNLIKE src/ScriptForge/ScriptForge.csproj: that build
+         excludes runtime assets because the real .gha loads inside a Rhino
+         process that already provides Grasshopper.dll/RhinoCommon.dll. This is
+         a standalone console app with no host to provide them, so it needs its
+         own runtime copies, hence IncludeAssets="all" instead of
+         ExcludeAssets="runtime", which also opts out of the package's own
+         Grasshopper.targets (it force strips the copy-local DLLs unless some
+         asset property is set). -->
+    <PackageReference Include="Grasshopper" Version="8.*" IncludeAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Glob rather than pin the version segment: ScriptForge.csproj's
+         FrameworkReference is what actually restores this ref pack into the
+         local NuGet cache, on its own schedule, so a literal version here goes
+         stale the moment that restore moves without this project's noticing.
+         A single item match is required for %(FullPath) below to resolve to
+         one path rather than a `;`-joined list. -->
+    <_WindowsFormsRef Include="$(NuGetPackageRoot)microsoft.windowsdesktop.app.ref/8.*/ref/net8.0/System.Windows.Forms.dll" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <WindowsFormsRefPath>@(_WindowsFormsRef)</WindowsFormsRefPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+    <!-- The generated body compiles against GH_Canvas : Control (a WinForms
+         type), even though nothing this harness ever calls reaches that code
+         path. Unlike src/ScriptForge/ScriptForge.csproj, this project is an
+         Exe with its own apphost, so a `<FrameworkReference
+         Include="Microsoft.WindowsDesktop.App.WindowsForms" />` would add that
+         shared runtime to its runtimeconfig.json and the app would then refuse
+         to *launch* on macOS (no such runtime installed), regardless of
+         whether the WinForms code path is ever reached. Referencing the
+         reference-assembly DLL directly resolves the same types for the
+         compiler without registering a runtime dependency. -->
+    <Reference Include="System.Windows.Forms" Condition="'$(WindowsFormsRefPath)' != ''">
+      <HintPath>$(WindowsFormsRefPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- NOT a direct `<Compile Include="../../script-forge.cs" />`: that class
+         declares `: GH_ScriptInstance`, an abstract base from the real
+         Grasshopper.dll whose abstract InvokeRunScript this file never
+         implements (the canvas host supplies it). gh_codegen.py already solves
+         exactly this problem for the real build, it rewrites the class
+         declaration line to derive from GHScriptKit.ScriptBase (a small
+         compile-time stand-in, see ScriptBase.cs) instead, compiling
+         everything else verbatim. Reusing that generated output means this
+         harness compiles the identical body the .gha does, header parser
+         included, with no separate stand-in of its own to maintain.
+         tooling/test_fixtures.py runs `gh_codegen.py` before building this
+         project, so build/gen/ is never stale here. -->
+    <Compile Include="../../build/gen/*.cs" />
+  </ItemGroup>
+
+</Project>

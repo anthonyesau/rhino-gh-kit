@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "rhino-gh-kit",
+  "displayName": "Rhino + Grasshopper Kit",
+  "version": "0.8.38-beta",
+  "description": "Author inline Rhino 8 Grasshopper C# and Python 3 Script components: drive an on-canvas Script Forge over McNeel's Rhino MCP Platform to sync source, params, type hints, identity and icons from a metadata header, plus header tooling, per-language authoring skills, and a workflow guard hook.",
+  "author": {
+    "name": "anthonyesau"
+  },
+  "repository": "https://github.com/anthonyesau/rhino-gh-kit",
+  "keywords": [
+    "grasshopper",
+    "rhino",
+    "csharp",
+    "scripting",
+    "mcp",
+    "script-forge"
+  ]
+}

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Filenames — portable charset + stem/header agreement
+        run: |
+          python3 tooling/check_filenames.py
+          python3 tooling/check_filenames.py --root script-forge
+          python3 tooling/check_filenames.py --root examples
+
+      - name: Headers — @component grammar, both roots
+        run: |
+          python3 tooling/gh_meta.py --all --check --root script-forge
+          python3 tooling/gh_meta.py --all --check --root examples
+
+      - name: Ship list — script-forge
+        run: python3 tooling/gh_codegen.py --list --root script-forge
+
+      - name: Fixture parity — gh_meta.py vs. Script Forge's own parser
+        run: python3 script-forge/tooling/test_fixtures.py
+
+      - name: Shell syntax
+        run: bash -n hooks/gh-workflow-guard.sh tooling/*.sh tooling/hooks/pre-commit
+
+      - name: Build ScriptForge.gha
+        run: tooling/publish.sh --repo script-forge

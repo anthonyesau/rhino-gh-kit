@@ -1,0 +1,107 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Single-target net8.0.
+         CROSS-PLATFORM: the TFM carries no `-windows` suffix, so this one binary
+         loads on Rhino 8 for macOS and Windows alike. McNeel's template also
+         offers net7.0-windows and net48; both are Windows-only, and net48 exists
+         solely for Rhino 7, so neither is targeted here.
+         VERSION: Rhino 8.33's managed host runs on the .NET 8 runtime
+         (Contents/.../Resources/dotnetstart.8.runtimeconfig.json pins
+         Microsoft.NETCore.App 8.0.0, rollForward LatestMinor), so a net8.0 .gha
+         loads even though RhinoCommon.dll is itself compiled as net7.0.
+         net7.0's only advantage would be loading on pre-8.20 Rhino installs. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <TargetExt>.gha</TargetExt>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <NoWarn>NU1701;NETSDK1086</NoWarn>
+
+    <AssemblyName>ScriptForge</AssemblyName>
+    <RootNamespace>ScriptForge</RootNamespace>
+
+    <!-- Left ON deliberately. ScriptForgeInfo.cs declares no [assembly:]
+         attributes (only the GH_AssemblyInfo subclass), so there is nothing to
+         collide with, and the SDK stamps AssemblyVersion/Title/Company/
+         Description from the properties below. Turning it off silently ships an
+         assembly versioned 0.0.0.0. It also stamps AssemblyInformationalVersion
+         from <Version> below, which is where ScriptForgeInfo.AssemblyVersion
+         reads the version Grasshopper displays; the numeric AssemblyVersion
+         cannot carry a `-beta` suffix. -->
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+
+    <!-- Script Forge is written and tested inside Grasshopper's script sandbox,
+         which compiles with overflow checks ON. Matching it keeps the compiled
+         build arithmetically identical, so any deliberately-wrapping arithmetic
+         has to say `unchecked` in the canonical source and mean it on both. -->
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+
+    <!-- Lets the canonical source carry code meant only for the compiled build.
+         The RhinoCode script compiler honours #if/#else/#endif and does NOT
+         define this, so a `#if SCRIPTFORGE_COMPILED` block is excluded on the
+         canvas. Nothing uses it yet; the hook mechanism in gh_codegen.py needs
+         no constant, and a source free of build configuration is the better
+         default. -->
+    <DefineConstants>$(DefineConstants);SCRIPTFORGE_COMPILED</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Assembly + Yak metadata. The GH ribbon tab is NOT derived from any of
+         this — it comes from the component's own category/subcategory in its
+         @component header, which is what keeps the tab, the package name and the
+         assembly name independent of each other.
+         Keep <Version> in step with yak/manifest.yml; tooling/publish.sh
+         refuses to build if the two have drifted. -->
+    <Version>0.4.2-beta</Version>
+    <Title>Script Forge</Title>
+    <Company>Anthony Esau</Company>
+    <Authors>Anthony Esau</Authors>
+    <Description>Builds or updates Grasshopper script components from source text or source files.</Description>
+    <Copyright>Copyright © 2026 Anthony Esau</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- PINNED, not floating. `yak build` derives the package's distribution tag
+         from the RhinoCommon this is compiled against — 8.34 produces
+         `…-rh8_34-any.yak`, which declares "requires Rhino 8 SR34 or newer" and
+         refuses to install below it. With `Version="8.*"` that floor was
+         whatever NuGet resolved on build day: it rose silently with every McNeel
+         service release, and the same commit built on two machines produced two
+         different packages.
+
+         8.0 through 8.34 all compile, so this is not a compiler constraint —
+         it is a claim about what has been TESTED. The plugin reaches
+         RhinoCodePluginGH (ScriptVariableParam, Python3Component,
+         IScriptComponent) purely by reflection, so the compiler never checks the
+         one dependency most likely to move between service releases; a green
+         build against an older SDK would prove nothing. This is the SR that gets
+         tested. Lower it deliberately, after testing on that Rhino. -->
+    <PackageReference Include="Grasshopper" Version="8.34.26223.11001" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <!-- WinForms + System.Drawing reference assemblies. Script Forge's own source
+       only uses System.Drawing, but Grasshopper's API surface is full of WinForms
+       types (AppendAdditionalComponentMenuItems takes a ToolStripDropDown), so
+       compiling against Grasshopper needs them resolvable on macOS. Shape taken
+       from McNeel's own `dotnet new grasshopper` template. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <!-- The build's only sources are (a) this project's own scaffolding and (b)
+       build/gen/, regenerated from scratch by gh_codegen.py on every run and
+       gitignored. `script-forge.cs` at the repo root is NOT compiled directly —
+       it declares `public class Script_Instance`, the name every canvas script
+       component uses; the generator emits a copy with that one declaration line
+       rewritten to a uniquely-named partial class. -->
+  <PropertyGroup>
+    <GenDir>$(MSBuildThisFileDirectory)../../build/gen/</GenDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(GenDir)*.cs" />
+    <EmbeddedResource Include="$(GenDir)icons/*.png" LogicalName="ScriptForge.Icons.%(Filename).png" />
+  </ItemGroup>
+
+</Project>
