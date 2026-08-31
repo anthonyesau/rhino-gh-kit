@@ -169,6 +169,15 @@ if [ "$CODEGEN" = "1" ]; then
     *) CODEGEN_ARGS+=(--resource-prefix "${GHA_NAME%.gha}.Icons") ;;
   esac
 
+  # Icon rasterization shells to sips (macOS only). Off macOS, degrade to
+  # --no-icons rather than fail the whole build over a cosmetic asset.
+  if ! command -v sips >/dev/null 2>&1; then
+    case " ${CODEGEN_ARGS[*]-} " in
+      *" --no-icons "*) ;;
+      *) CODEGEN_ARGS+=(--no-icons) ;;
+    esac
+  fi
+
   step "Generating build/gen"
   python3 "$KIT/tooling/gh_codegen.py" ${CODEGEN_ARGS[@]+"${CODEGEN_ARGS[@]}"}
 else
