@@ -74,6 +74,19 @@ class FixtureRunner
             var pinnedGuid = (Guid)headerMetaType.GetField("PinnedGuid").GetValue(meta);
             entry["instanceGuid"] = pinnedGuid == Guid.Empty ? null : pinnedGuid.ToString();
 
+            // Every param's stored Access, inputs then outputs. The header
+            // parser is what normalizes it, and ApplyDef's GH_ParamAccess
+            // ladder reads exactly this string -- so pinning it here pins the
+            // access a forged param actually gets, without a live canvas.
+            var headerParamType = type.GetNestedType("HeaderParam", BindingFlags.NonPublic)
+                ?? throw new MissingMemberException(type.Name + ".HeaderParam not found -- did it get renamed?");
+            var accessField = headerParamType.GetField("Access");
+            var access = new List<string>();
+            foreach (var side in new[] { "Ins", "Outs" })
+                foreach (var d in (IEnumerable)headerMetaType.GetField(side).GetValue(meta))
+                    access.Add((string)accessField.GetValue(d));
+            entry["access"] = access;
+
             bool isPython = path.EndsWith(".py", StringComparison.OrdinalIgnoreCase);
             var log = (IList)Activator.CreateInstance(typeof(List<string>));
             warnMethod.Invoke(null, new object[] { text, meta, isPython, log });

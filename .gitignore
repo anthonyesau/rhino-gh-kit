@@ -53,3 +53,6 @@ script-forge/tooling/fixture-runner/obj/
 
 # Per-clone Claude Code permission overrides — machine-specific, not shared.
 .claude/settings.local.json
+
+# Scratch folder for throwaway demos and probes -- never a source of truth.
+/scratch/

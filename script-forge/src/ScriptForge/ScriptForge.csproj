@@ -52,7 +52,7 @@
          assembly name independent of each other.
          Keep <Version> in step with yak/manifest.yml; tooling/publish.sh
          refuses to build if the two have drifted. -->
-    <Version>0.4.3-beta</Version>
+    <Version>0.4.4-beta</Version>
     <Title>Script Forge</Title>
     <Company>Anthony Esau</Company>
     <Authors>Anthony Esau</Authors>

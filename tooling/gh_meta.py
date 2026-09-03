@@ -29,6 +29,11 @@ two params on one side share a label, that a declared `default` is input-side
 and agrees with its `type`, and for C# sources that the header's param names
 match the RunScript signature (drift check).
 
+Keys and values are matched **case-insensitively** — the spelling in the
+reference doc is canonical, not required. Two keys of one object that differ
+only in case is an error. An unrecognized key is ignored, as it always has
+been, but reported as a non-fatal `WARN` line; it never fails `--check`.
+
 A file that will not parse is reported either way: `--check` prints
 `FAIL <path>: <reason>` on stdout alongside its per-file report, and the bare
 form prints the same line on **stderr**, leaving stdout as the JSON a caller may
@@ -78,6 +83,7 @@ def parse_header(path):
           "instance_guid": str|None,    # which component on the canvas to update
           "component_guid": str|None,   # the permanent published ComponentGuid
           "inputs":  [PARAM, ...], "outputs": [PARAM, ...],
+          "warnings": [str, ...],       # non-fatal, e.g. an unrecognized key
         }
 
     where PARAM is
@@ -139,6 +145,61 @@ _JSON_STR_KEYS = ("name", "nickname", "description", "category", "subcategory",
                   "icon", "language", "exposure", "instanceGuid", "componentGuid")
 _JSON_LIST_KEYS = ("markers", "upgradeFrom")
 
+# Every key the grammar knows, at the component level and inside a param object.
+# A key outside these sets is still ignored -- that is the forward-compatibility
+# promise and it does not change -- but being ignored SILENTLY is how a typo'd
+# `"nickanme"` costs an hour, so _fold_keys reports one as a non-fatal warning.
+# `guid` counts as known here only so it is not reported twice: it has its own
+# hard rejection below, with a message that says what to write instead.
+# SYNC: Script Forge's ComponentKeys / ParamKeys.
+_JSON_COMPONENT_KEYS = frozenset(
+    k.lower() for k in
+    _JSON_STR_KEYS + _JSON_LIST_KEYS + ("inputs", "outputs", "guid"))
+_JSON_PARAM_KEYS = frozenset(
+    k.lower() for k in ("name", "variableName", "nickname", "type", "access",
+                        "description", "optional", "default"))
+
+
+class _Folded(dict):
+    """A JSON object whose keys are matched case-insensitively.
+
+    Every key is stored lowered and every lookup lowers first, so a header may
+    spell `variableName`, `VariableName` or `variablename` and reach the same
+    slot. The documented spelling stays canonical -- this only decides what
+    *matches* it.
+    """
+
+    def __contains__(self, key):
+        return dict.__contains__(self, key.lower())
+
+    def __getitem__(self, key):
+        return dict.__getitem__(self, key.lower())
+
+    def get(self, key, default=None):
+        return dict.get(self, key.lower(), default)
+
+
+def _fold_keys(obj, where, known, warnings):
+    """`obj` as a `_Folded`, warning about keys outside `known`.
+
+    Two keys of one object that differ only in case are a mistake JSON permits
+    -- `"name"` and `"Name"` together says nothing about which was meant -- so
+    they raise rather than one of them silently winning.
+    SYNC: Script Forge's JsonKeys.
+    """
+    folded, spelling = _Folded(), {}
+    for key, value in obj.items():
+        low = key.lower()
+        if low in spelling:
+            raise HeaderError(
+                f"{where}: keys {spelling[low]!r} and {key!r} differ only in "
+                f"case -- one object cannot carry both")
+        spelling[low] = key
+        dict.__setitem__(folded, low, value)
+        if low not in known:
+            warnings.append(f"{where}: unknown key {key!r} -- ignored")
+    return folded
+
 
 def _parse_json_header(lines, start, path):
     """Parse a JSON header body from `lines[start]` (the `@component` line) on.
@@ -159,6 +220,9 @@ def _parse_json_header(lines, start, path):
         raise HeaderError(f"{path}: @component header is not valid JSON: {e}")
     if not isinstance(obj, dict):
         raise HeaderError(f"{path}: @component header must be a JSON object")
+
+    warnings = []
+    obj = _fold_keys(obj, path, _JSON_COMPONENT_KEYS, warnings)
 
     for key in _JSON_STR_KEYS:
         if key in obj and not isinstance(obj[key], str):
@@ -196,12 +260,15 @@ def _parse_json_header(lines, start, path):
         "language": obj.get("language"),
         "markers": list(obj.get("markers", [])),
         "upgrades": list(obj.get("upgradeFrom", [])),
-        "inputs": _json_params(obj, "inputs", path),
-        "outputs": _json_params(obj, "outputs", path),
+        "inputs": _json_params(obj, "inputs", path, warnings),
+        "outputs": _json_params(obj, "outputs", path, warnings),
+        # Non-fatal: an unknown key is still ignored, and `--check` still
+        # passes. main() prints these; check_meta leaves them alone.
+        "warnings": warnings,
     }
 
 
-def _json_params(obj, key, path):
+def _json_params(obj, key, path, warnings):
     raw = obj.get(key, [])
     if not isinstance(raw, list):
         raise HeaderError(f"{path}: header {key!r} must be an array of param objects")
@@ -211,6 +278,7 @@ def _json_params(obj, key, path):
         where = f"{path}: {key}[{i}]"
         if not isinstance(p, dict):
             raise HeaderError(f"{where} is not an object")
+        p = _fold_keys(p, where, _JSON_PARAM_KEYS, warnings)
 
         for k in ("name", "variableName", "nickname", "type", "description"):
             if k in p and not isinstance(p[k], str):
@@ -219,9 +287,14 @@ def _json_params(obj, key, path):
             if k not in p:
                 raise HeaderError(f"{where} missing required {k!r}")
         name = p["name"]
-        if p.get("access") not in ACCESS_MODES:
+        # `access` is matched case-insensitively and stored canonical, so every
+        # consumer of this dict sees "item"/"list"/"tree" and nothing else.
+        access = p["access"]
+        if isinstance(access, str):
+            access = access.lower()
+        if access not in ACCESS_MODES:
             raise HeaderError(
-                f"{path}: bad access {p.get('access')!r} for param {name!r} "
+                f"{path}: bad access {p['access']!r} for param {name!r} "
                 f"-- expected one of {'/'.join(ACCESS_MODES)}")
         if "optional" in p and not isinstance(p["optional"], bool):
             raise HeaderError(f"{where}: 'optional' must be true or false")
@@ -234,7 +307,7 @@ def _json_params(obj, key, path):
             "name": name,
             "nickname": p.get("nickname", name),
             "hint": p["type"],
-            "access": p["access"],
+            "access": access,
             "description": p.get("description", ""),
             "optional": p.get("optional", True),
             # None means "no declared default". A literal `"default": null` is
@@ -667,14 +740,21 @@ def main(argv):
             errors.append(str(e))
 
     if check:
+        # Header warnings are deliberately outside `errors`: an unrecognized key
+        # is ignored by design, so saying so must not fail the gate a compiled
+        # build runs through.
+        warnings = []
         for name, meta in results.items():
             problems = check_meta(paths[name], meta)
             errors.extend(problems)
+            warnings.extend(meta["warnings"])
             n_in, n_out = len(meta["inputs"]), len(meta["outputs"])
-            status = "OK  " if not problems else "BAD "
+            status = "BAD " if problems else ("WARN" if meta["warnings"] else "OK  ")
             extra = (f" upgrades={meta['upgrades']}" if meta["upgrades"] else "")
             print(f"{status} {name:32s} in={n_in} out={n_out} "
                   f"markers={meta['markers'] or '-'}{extra}")
+        for w in warnings:
+            print(f"WARN {w}")
         for e in errors:
             print(f"FAIL {e}")
         return 1 if errors else 0
@@ -683,6 +763,9 @@ def main(argv):
     # failures go to stderr rather than being swallowed. Without this a file
     # that will not parse produced a bare `{}` and exit 1 -- indistinguishable,
     # to anyone not reading $?, from "parsed fine, nothing to report".
+    for meta in results.values():
+        for w in meta["warnings"]:
+            print(f"WARN {w}", file=sys.stderr)
     for e in errors:
         print(f"FAIL {e}", file=sys.stderr)
     if errors and not results:

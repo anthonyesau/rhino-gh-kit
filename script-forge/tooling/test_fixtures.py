@@ -19,7 +19,9 @@ into assertions instead of prose, on BOTH parsers:
 Three outcomes, not two, matter here:
 
   * "ok"         -- parses; check_meta / WarnDriftAndQuotes may still flag
-                    problems (0 or more).
+                    problems (0 or more). The parse itself may additionally
+                    collect non-fatal warnings -- an unrecognized key -- which
+                    `--check` prints without failing on; see DIVERGENCES 4.
   * "error"      -- the header itself is structurally broken (bad JSON, a
                     missing required key, an invalid `access`). Both parsers
                     raise/throw for exactly the same cases -- this is
@@ -29,6 +31,15 @@ Three outcomes, not two, matter here:
                     parses fine to Script Forge (nothing to plan) but is not
                     a valid gh_meta.py target, so this outcome only ever shows
                     up on the C# side; see DIVERGENCES below.
+
+**Only headers are under test here.** Neither side compiles or runs a fixture's
+body: the C# harness reflects into ParseHeader / WarnDriftAndQuotes and reads
+the resulting HeaderMeta, and gh_meta.py parses text. So a green run says a
+header resolves the same way on both parsers -- it does NOT say the fixture
+forges, compiles, or solves on a canvas. A body that a live script component
+would reject (a missing `using`, or an `out T` assigned as if Grasshopper had
+not rewritten it to `out object`) passes every assertion below. Only forging the
+fixture finds that; see script-forge/docs/forge-under-test.md.
 
 DIVERGENCES -- the parsers deliberately do not always agree, and this runner
 pins each gap rather than papering over it:
@@ -51,6 +62,11 @@ pins each gap rather than papering over it:
      malformed they are -- only gh_meta.py --check (which gates a compiled
      build) validates them. See err-upgrade-guid.cs / EXPECT's
      `csharp_problems` override.
+  4. a header warning fails nothing. An unrecognized key is ignored by design
+     on both sides, so gh_meta.py reports it as a `WARN` line that leaves
+     `--check` at exit 0, and Script Forge logs it as `KEY WARNING`. It is
+     still a finding both parsers must agree on, so this runner counts it in
+     EXPECT's `warnings` and folds it into the C# comparison.
 
 Usage:
     python3 script-forge/tooling/test_fixtures.py             # rebuilds the C# harness
@@ -95,10 +111,19 @@ import gh_meta  # noqa: E402
 # --check turns every one of these into a hard failure (exit 1); Script
 # Forge's WarnDriftAndQuotes turns the identical finding into a Log warning
 # and forges anyway. That is not incidental -- see DIVERGENCES below.
+#
+# `warnings` (default 0) is the OTHER Python-side count: findings the parse
+# itself collected, which `--check` prints and does not fail on. Script Forge
+# puts them in the same Log as everything else, so the C# side is compared
+# against `problems` + `warnings` unless `csharp_problems` overrides it.
+#
+# `access` pins each param's normalized access value, inputs then outputs --
+# the string ApplyDef's GH_ParamAccess ladder reads.
 EXPECT = {
     "base64icon-cs.cs":     {"outcome": "ok", "problems": 0},
     "display-name-cs.cs":   {"outcome": "ok", "problems": 0},
     "err-bad-access.cs":    {"outcome": "error", "error_substr": "bad access"},
+    "err-case-clash-cs.cs": {"outcome": "error", "error_substr": "differ only in case"},
     "err-default-values.cs": {"outcome": "ok", "problems": 7},
     "err-dup-display.cs":   {"outcome": "ok", "problems": 1},
     "err-no-name.cs":       {"outcome": "error", "error_substr": "missing required"},
@@ -116,15 +141,23 @@ EXPECT = {
                               "csharp_outcome": "headerless"},
     "headerless-py.py":     {"outcome": "error", "error_substr": "no @component header found",
                               "csharp_outcome": "headerless"},
+    # Mixed-case access values normalize; both parsers store the canonical
+    # spelling, which is what decides the built param's GH_ParamAccess.
+    "mixed-case-access-cs.cs": {"outcome": "ok", "problems": 0,
+                              "access": ["tree", "list", "item", "tree"]},
     "multiline-cs.cs":      {"outcome": "ok", "problems": 0,
                               "description": "Line one.\nLine two.\nLine three."},
     "orphan-name-cs.cs":    {"outcome": "ok", "problems": 0},
+    "pascal-keys-cs.cs":    {"outcome": "ok", "problems": 0},
     "pinned-cs.cs":         {"outcome": "ok", "problems": 0,
                               "instance_guid": "11112222-3333-4444-5555-666677778888"},
     "pointgrid-py.py":      {"outcome": "ok", "problems": 0},
     "remap-cs.cs":          {"outcome": "ok", "problems": 0},
     "remap-v2-cs.cs":       {"outcome": "ok", "problems": 0},
     "unique-create-cs.cs":  {"outcome": "ok", "problems": 0},
+    # One unknown key at the component level, one inside a param. Neither is a
+    # problem -- `--check` still exits 0 -- but neither is silent either.
+    "unknown-key-cs.cs":    {"outcome": "ok", "problems": 0, "warnings": 2},
     "warnings-cs.cs":       {"outcome": "ok", "problems": "parity"},
 }
 
@@ -140,7 +173,8 @@ def run_python(name):
     except gh_meta.HeaderError as e:
         return {"outcome": "error", "error": str(e)}
     problems = gh_meta.check_meta(path, meta)
-    return {"outcome": "ok", "problems": problems, "meta": meta}
+    return {"outcome": "ok", "problems": problems,
+            "warnings": meta["warnings"], "meta": meta}
 
 
 # --------------------------------------------------------------- C# side --
@@ -201,7 +235,7 @@ def main(argv):
     # fails loudly instead of the divergence just stopping being under test.
     divergent = 0
     print()
-    print(f"{'fixture':30s} {'py':6s} {'cs':6s}  verdict")
+    print(f"{'fixture':30s} {'py':6s} {'cs':6s}  verdict   (py = problems+warnings)")
     for name in names:
         exp = EXPECT[name]
         py = run_python(name)
@@ -230,7 +264,8 @@ def main(argv):
                              + (f" ({cs.get('error')})" if cs["outcome"] == "error" else ""))
 
         if exp["outcome"] == "ok" and py["outcome"] == "ok" and cs["outcome"] == "ok":
-            py_n, cs_n = len(py["problems"]), len(cs["warnings"])
+            py_n, py_w = len(py["problems"]), len(py["warnings"])
+            cs_n = len(cs["warnings"])
             if py_n > 0:
                 # DIVERGENCE 1: gh_meta.py --check would exit 1 on this file
                 # (py_n problems found); the Forge parsed it as "ok" -- warns
@@ -238,16 +273,29 @@ def main(argv):
                 divergent += 1
             want = exp["problems"]
             if want == "parity":
-                if py_n != cs_n:
-                    row_fail.append(f"problem counts diverge: python={py_n}, csharp={cs_n}")
-                elif py_n == 0:
+                # Both Python-side counts land in the Forge's one Log, so the
+                # comparison is against their sum.
+                if py_n + py_w != cs_n:
+                    row_fail.append(f"finding counts diverge: python={py_n}+{py_w}, csharp={cs_n}")
+                elif py_n + py_w == 0:
                     row_fail.append("expected parity with at least one finding, got zero on both")
             else:
+                want_w = exp.get("warnings", 0)
                 if py_n != want:
                     row_fail.append(f"python found {py_n} problems, expected {want}")
-                want_cs = exp.get("csharp_problems", want)
+                if py_w != want_w:
+                    row_fail.append(f"python found {py_w} warnings, expected {want_w}")
+                want_cs = exp.get("csharp_problems", want + want_w)
                 if cs_n != want_cs:
                     row_fail.append(f"csharp found {cs_n} warnings, expected {want_cs}")
+
+            if "access" in exp:
+                py_access = [p["access"] for p in
+                             py["meta"]["inputs"] + py["meta"]["outputs"]]
+                if py_access != exp["access"]:
+                    row_fail.append(f"python access {py_access} != {exp['access']}")
+                if cs.get("access") != exp["access"]:
+                    row_fail.append(f"csharp access {cs.get('access')} != {exp['access']}")
 
             if "description" in exp and py["meta"]["description"] != exp["description"]:
                 row_fail.append(f"python description {py['meta']['description']!r} != "
@@ -265,7 +313,8 @@ def main(argv):
                     row_fail.append(f"csharp instanceGuid {cs.get('instanceGuid')!r} != "
                                      f"{want_guid!r}")
 
-        py_n = len(py.get("problems", [])) if py["outcome"] == "ok" else "-"
+        py_n = (f"{len(py['problems'])}+{len(py['warnings'])}"
+                if py["outcome"] == "ok" else "-")
         cs_n = len(cs.get("warnings", [])) if cs["outcome"] == "ok" else "-"
         verdict = "ok" if not row_fail else "FAIL"
         print(f"{name:30s} {str(py_n):6s} {str(cs_n):6s}  {verdict}")

@@ -81,8 +81,33 @@ and column, and the forge stops on that branch and forges the others.
 
 Anything after the closing brace is ignored, which is what lets the `*/` or
 `"""` sit there. **Unrecognized keys are ignored by design** — extra keys
-never break a forge. `guid` is the one rejection; see
+never break a forge, though they do warn, and keys are matched without regard
+to case; both are [Case](#case). `guid` is the one rejection; see
 [below](#component-keys).
+
+---
+
+## Case
+
+**Every key and every keyword value is matched case-insensitively.** The
+spelling in this document is **canonical** — write it — but `"VariableName"`,
+`"variableName"` and `"variablename"` all reach the same slot, and
+`"access": "Tree"` is the same as `"access": "tree"`. The same holds for
+`type`, `language`, `exposure` and the `Target` keywords.
+
+Two keys of **one** object that differ only in case are an **error**, not a
+preference: JSON permits `{"name": …, "Name": …}` and nothing in it says which
+was meant, so both parsers refuse the header rather than letting one win.
+
+**An unrecognized key is ignored — with a warning.** Ignoring is deliberate, so
+a source carrying a key a newer grammar adds still forges on an older Forge. But
+a silently dropped `"nickanme"` is indistinguishable from one that worked, so
+the forge logs `KEY WARNING: header: unknown key 'nickanme' — ignored` and
+`gh_meta.py --check` prints the same as a `WARN` line. It is **not** a failure:
+`--check` still exits 0.
+
+`guid` is the one exception, and it is rejected outright rather than warned
+about — see the note under [Component keys](#component-keys).
 
 ---
 
@@ -92,6 +117,9 @@ This is every key `gh_meta.py` and the forge's own parser recognize at the
 component level. Most readers only need the **Forged component** column —
 skip **Compiled component** entirely unless a source is also headed for
 `gh_codegen.py`'s ship list (see [For a compiled build](#for-a-compiled-build)).
+
+**Keys are matched case-insensitively**, here and in a param object — see
+[Case](#case).
 
 | Key | Required | Forged component | Compiled component |
 |---|---|---|---|
@@ -185,6 +213,9 @@ Each entry of `inputs` / `outputs` is a JSON object:
 **Params end up in exactly the header's order.** Index-based body code and
 downstream tooling stay valid — the header *is* the index order.
 
+Param keys are matched case-insensitively too, and an unrecognized one warns
+rather than passing in silence — [Case](#case).
+
 ### Three name slots, and which surface each reaches
 
 This is the part worth reading twice. Rhino gives a script param two label
@@ -258,6 +289,10 @@ nickname is never drawn — `variableName` is. It is the compiled build's label.
 | `item` | `T` | a single value |
 | `list` | `List<T>` | one branch |
 | `tree` | `DataTree<T>` | multi-branch |
+
+Matched case-insensitively, like every other keyword value — `"Tree"` and
+`"TREE"` are `tree`. Anything that is not one of the three is a hard error on
+both parsers, not a fallback to `item`.
 
 An item- or list-access component under Grasshopper's implicit iteration
 appends the iteration index to its output paths (`{i}` in ⇒ `{i;0}` out). If a
@@ -448,6 +483,7 @@ expected; it is the whole diagnostic surface.
 
 | Log line | Cause |
 |---|---|
+| `KEY WARNING` | a key the grammar does not recognize, at the component level or inside a param object. It is ignored, as it always is — the line exists so a typo is not ignored *silently*. See [Case](#case). |
 | `DRIFT WARNING` | a `variableName` is declared in the header but missing from the `RunScript` signature, or vice versa — the header and your code disagree about the param list. |
 | `HINT WARNING` | a `type` wasn't recognized; the param fell back to No Type Hint. |
 | `NAME WARNING` | a `variableName` is not an identifier, is a C# keyword, is claimed twice on the same side, or (C# only) is claimed by both an input and an output. |
@@ -587,6 +623,9 @@ reason. Naming a file explicitly on the command line parses it regardless.
 every root-level `.cs` **and** `.py` source that has not opted out:
 
 - the body parses as JSON, and `name` and `description` are present;
+- **no two keys of one object differ only in case** (see [Case](#case)). An
+  *unrecognized* key is reported as a `WARN` line instead and leaves the exit
+  code alone — being ignored is what it is for;
 - **no double quotes** in the component description, any param description, or
   either param label slot (they reach a generated C# literal via `cs_string` —
   see the `write-csharp-script` skill);

@@ -11,31 +11,27 @@
   "exposure":      "level1",
 
   "inputs": [
-    { "name": "Source", "type": "string", "access": "tree",
+    { "name": "Source", "nickname": "S", "type": "string", "access": "tree",
       "description": "Source text or file path. One script per branch.\n• Source text: a multiline string, or a list of lines (e.g. Read File output).\n• File path: *.cs or *.py, absolute or relative to the saved .gh file." },
-    { "name": "Target", "type": "object", "access": "tree",
+    { "name": "Target", "nickname": "T", "type": "object", "access": "tree",
       "description": "Components to update, or a header-matching keyword. One branch per source.\n• Unwired: match the header's instanceGuid, else every component whose Name matches the header, else forge new.\n• A component item: instance guid, guid string, or component goo.\n• 'name': update every component whose Name matches the source header.\n• 'nickname': the same, matching NickName.\n• 'name+create' / 'nickname+create': as above, but forge a new component if none match.\n• A null or blank item: always forge a new component, even when the header pins an instanceGuid.\n• Wired but zero items for a branch: skip it — nothing forged.\nKeywords are case-insensitive and must be the whole item. No match skips the branch." },
-    { "name": "Run", "type": "bool", "access": "item",
+    { "name": "Run", "nickname": "R", "type": "bool", "access": "item",
       "description": "Forges on the RISING edge — the moment Run goes false to true. A momentary button is the natural fit; a toggle forges when switched on, and not again while it stays on. What is wired here is never inspected, so a relay, a Gate, an expression or a script output all read alike. While Run stays true, file-path sources are watched on disk and re-forge automatically when the file is edited — no Read File rig." }
   ],
 
   "outputs": [
-    { "name": "Success", "type": "bool", "access": "tree",
+    { "name": "Success", "nickname": "OK", "type": "bool", "access": "tree",
       "description": "True or false per target slot — whether the forge's own synchronous pass for that slot succeeded. A target script's own runtime error is not a forge failure. Skipped branches stay empty." },
-    { "name": "Log", "type": "string", "access": "tree",
+    { "name": "Log", "nickname": "L", "type": "string", "access": "tree",
       "description": "Step-by-step report per branch, sectioned per target: header parse, target resolution, param sync, lost wires, and the push. Stamping runs after the target compiles, so its outcome is not here — a stamping failure raises this component's own error bubble instead." }
   ]
 }
 */
 
-// No param declares a `nickname`, deliberately: NickName is what Grasshopper
-// DRAWS, and omitting it defaults it to `name`, so both surfaces label these
-// params Source / Target / Run / Success / Log. One-letter nicknames would show
-// up on the compiled build ONLY — a script component's NickName comes from
-// `variableName` — so declaring them made the canvas forge and the .gha forge
-// draw different labels, and made the .gha disagree with every build before
-// 0.4.0 (the codegen only started honouring `nickname` in 3f9c10c, after the
-// last release). Leave them off.
+// Param `nickname`s reach the COMPILED build only — a script component's drawn
+// NickName is its `variableName`, so the canvas forge keeps labelling these
+// params Source / Target / Run / Success / Log while the .gha draws
+// S / T / R / OK / L.
 //
 // Script Forge — a script component that forges other script components.
 // Standalone: everything runs on Grasshopper/RhinoCodePluginGH APIs (the
@@ -1386,8 +1382,13 @@ public class Script_Instance : GH_ScriptInstance
     // merely disapproving. On an input, `optional: false` makes an unwired param
     // stop the solve outright, which is the point of asking for it.
     p.Optional = isOutput || def.Optional;
-    p.Access = def.Access == "list" ? GH_ParamAccess.list
-             : def.Access == "tree" ? GH_ParamAccess.tree
+    // Access arrives canonical from the header parser; compared ignoring case
+    // anyway, because getting this wrong silently builds an `item` param out of
+    // a header that validated clean.
+    p.Access = string.Equals(def.Access, "list", StringComparison.OrdinalIgnoreCase)
+                 ? GH_ParamAccess.list
+             : string.Equals(def.Access, "tree", StringComparison.OrdinalIgnoreCase)
+                 ? GH_ParamAccess.tree
              : GH_ParamAccess.item;
     // applyHint=false means Python output: force No Type Hint, clearing any
     // hint already selected on the param — see the Python-outputs note in SyncParams.
@@ -1938,6 +1939,10 @@ public class Script_Instance : GH_ScriptInstance
 
   static void WarnDriftAndQuotes(string text, HeaderMeta meta, bool isPython, List<string> log)
   {
+    // Findings the parse itself collected — an unrecognized key, which is
+    // ignored by design but must not be ignored in silence.
+    foreach (var w in meta.Warnings) log.Add("KEY WARNING: " + w);
+
     if (meta.Desc != null && meta.Desc.Contains("\""))
       log.Add("QUOTE WARNING: component description contains a double quote — breaks the ScriptEditor plugin builder if published");
     foreach (var d in meta.Ins.Concat(meta.Outs))
@@ -2147,6 +2152,9 @@ public class Script_Instance : GH_ScriptInstance
     public bool SyncParams = true;
     public List<HeaderParam> Ins = new List<HeaderParam>();
     public List<HeaderParam> Outs = new List<HeaderParam>();
+    // Non-fatal findings from the parse itself — an unrecognized key. Emitted
+    // by WarnDriftAndQuotes with everything else, so the Log is one surface.
+    public List<string> Warnings = new List<string>();
   }
 
   static HeaderMeta ParseHeader(string text)
@@ -2181,9 +2189,61 @@ public class Script_Instance : GH_ScriptInstance
     return ParseJsonHeader(lines, start, opener);
   }
 
+  // Access is matched case-insensitively and stored canonical (JsonParams
+  // lowers it), so everything downstream compares against item/list/tree only.
+  // SYNC: gh_meta.py's ACCESS_MODES membership test.
   static bool IsAccess(string s)
   {
     return s == "item" || s == "list" || s == "tree";
+  }
+
+  // Every key the grammar knows, at the component level and inside a param
+  // object. A key outside these is still ignored — that is the
+  // forward-compatibility promise and it does not change — but being ignored
+  // SILENTLY is how a typo'd "nickanme" costs an hour, so JsonKeys logs one.
+  // `guid` counts as known only so it is not reported twice: it has its own
+  // hard rejection below, with a message that says what to write instead.
+  // Several of these (category, exposure, componentGuid, markers, upgradeFrom)
+  // mean nothing to a forge and are read by gh_codegen alone — they are listed
+  // because they are valid GRAMMAR, not because this parser uses them.
+  // SYNC: gh_meta.py's _JSON_COMPONENT_KEYS / _JSON_PARAM_KEYS.
+  static readonly HashSet<string> ComponentKeys = new HashSet<string>(
+    new[] { "name", "nickname", "description", "category", "subcategory",
+            "icon", "language", "exposure", "instanceGuid", "componentGuid",
+            "markers", "upgradeFrom", "inputs", "outputs", "guid" }
+      .Select(k => k.ToLowerInvariant()));
+
+  static readonly HashSet<string> ParamKeys = new HashSet<string>(
+    new[] { "name", "variableName", "nickname", "type", "access",
+            "description", "optional", "default" }
+      .Select(k => k.ToLowerInvariant()));
+
+  // A JSON object re-keyed to lower case, so a header may spell variableName,
+  // VariableName or variablename and reach the same slot. The documented
+  // spelling stays canonical — this only decides what MATCHES it.
+  //
+  // Two keys of one object that differ only in case are a mistake JSON permits
+  // — "name" and "Name" together says nothing about which was meant — so they
+  // throw rather than one of them silently winning.
+  // SYNC: gh_meta.py's _fold_keys / _Folded.
+  static Dictionary<string, JsonElement> JsonKeys(
+    JsonElement o, string where, HashSet<string> known, List<string> warnings)
+  {
+    var folded = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+    var spelling = new Dictionary<string, string>(StringComparer.Ordinal);
+    foreach (var prop in o.EnumerateObject())
+    {
+      var low = prop.Name.ToLowerInvariant();
+      string first;
+      if (spelling.TryGetValue(low, out first))
+        throw new Exception(where + ": keys '" + first + "' and '" + prop.Name
+          + "' differ only in case — one object cannot carry both");
+      spelling[low] = prop.Name;
+      folded[low] = prop.Value;
+      if (!known.Contains(low))
+        warnings.Add(where + ": unknown key '" + prop.Name + "' — ignored");
+    }
+    return folded;
   }
 
   // ------------------------------------------------------------ JSON body --
@@ -2227,42 +2287,44 @@ public class Script_Instance : GH_ScriptInstance
         throw new Exception("@component header must be a JSON object");
 
       var meta = new HeaderMeta { OpenerStyle = opener };
-      meta.Name = JsonRequiredString(root, "name", "header");
-      meta.Desc = JsonRequiredString(root, "description", "header");
-      meta.Nick = JsonString(root, "nickname", "header") ?? meta.Name;
-      meta.Icon = JsonString(root, "icon", "header");
-      meta.Language = JsonString(root, "language", "header");
+      var obj = JsonKeys(root, "header", ComponentKeys, meta.Warnings);
+      meta.Name = JsonRequiredString(obj, "name", "header");
+      meta.Desc = JsonRequiredString(obj, "description", "header");
+      meta.Nick = JsonString(obj, "nickname", "header") ?? meta.Name;
+      meta.Icon = JsonString(obj, "icon", "header");
+      meta.Language = JsonString(obj, "language", "header");
       // `guid` was the line grammar's one key for two unrelated properties: the
       // canvas InstanceGuid here, the published ComponentGuid in the codegen.
       // Unknown keys are otherwise ignored, and being ignored is exactly what
       // must not happen here — a header still saying `guid` would silently stop
       // pinning its target. SYNC: gh_meta.py's _parse_json_header raises the same.
-      JsonElement retired;
-      if (root.TryGetProperty("guid", out retired))
+      if (obj.ContainsKey("guid"))
         throw new Exception("header 'guid' is retired — say 'instanceGuid' (which component "
           + "on the canvas to update) or 'componentGuid' (the permanent published identity), "
           + "or both");
 
       // Forge targets an INSTANCE; componentGuid is the compiled build's
       // permanent identity and means nothing here.
-      var guidField = JsonString(root, "instanceGuid", "header");
+      var guidField = JsonString(obj, "instanceGuid", "header");
       if (guidField != null)
       {
         Guid g;
         if (Guid.TryParse(guidField, out g)) meta.PinnedGuid = g;
         else throw new Exception("header instanceGuid is not a valid guid");
       }
-      meta.Ins.AddRange(JsonParams(root, "inputs"));
-      meta.Outs.AddRange(JsonParams(root, "outputs"));
+      meta.Ins.AddRange(JsonParams(obj, "inputs", meta.Warnings));
+      meta.Outs.AddRange(JsonParams(obj, "outputs", meta.Warnings));
       return meta;
     }
   }
 
-  static List<HeaderParam> JsonParams(JsonElement root, string key)
+  static List<HeaderParam> JsonParams(
+    Dictionary<string, JsonElement> root, string key, List<string> warnings)
   {
     var list = new List<HeaderParam>();
     JsonElement arr;
-    if (!root.TryGetProperty(key, out arr) || arr.ValueKind == JsonValueKind.Null) return list;
+    if (!root.TryGetValue(key.ToLowerInvariant(), out arr)
+        || arr.ValueKind == JsonValueKind.Null) return list;
     if (arr.ValueKind != JsonValueKind.Array)
       throw new Exception("header " + key + " must be an array of param objects");
 
@@ -2271,16 +2333,18 @@ public class Script_Instance : GH_ScriptInstance
     {
       var where = key + "[" + i++ + "]";
       if (e.ValueKind != JsonValueKind.Object) throw new Exception(where + " is not an object");
+      var p = JsonKeys(e, where, ParamKeys, warnings);
 
-      var name = JsonRequiredString(e, "name", where);
-      var access = JsonRequiredString(e, "access", where);
+      var name = JsonRequiredString(p, "name", where);
+      var declared = JsonRequiredString(p, "access", where);
+      var access = declared.ToLowerInvariant();
       if (!IsAccess(access))
-        throw new Exception("bad access '" + access + "' for param " + name
+        throw new Exception("bad access '" + declared + "' for param " + name
           + " — expected item/list/tree");
 
       JsonElement opt;
       bool optional = true;
-      if (e.TryGetProperty("optional", out opt) && opt.ValueKind != JsonValueKind.Null)
+      if (p.TryGetValue("optional", out opt) && opt.ValueKind != JsonValueKind.Null)
       {
         if (opt.ValueKind != JsonValueKind.True && opt.ValueKind != JsonValueKind.False)
           throw new Exception(where + ": optional must be true or false");
@@ -2289,19 +2353,19 @@ public class Script_Instance : GH_ScriptInstance
 
       JsonElement def;
       object defaultValue = null;
-      if (e.TryGetProperty("default", out def) && def.ValueKind != JsonValueKind.Null)
+      if (p.TryGetValue("default", out def) && def.ValueKind != JsonValueKind.Null)
         defaultValue = JsonScalar(def);
 
       // The fan: VariableName and Nickname each default from Name on their own.
       // Chaining would let a short compiled NickName become the C# identifier.
       list.Add(new HeaderParam
       {
-        VariableName = JsonString(e, "variableName", where) ?? name,
+        VariableName = JsonString(p, "variableName", where) ?? name,
         Name = name,
-        Nickname = JsonString(e, "nickname", where) ?? name,
-        Hint = JsonRequiredString(e, "type", where),
+        Nickname = JsonString(p, "nickname", where) ?? name,
+        Hint = JsonRequiredString(p, "type", where),
         Access = access,
-        Desc = JsonString(e, "description", where) ?? "",
+        Desc = JsonString(p, "description", where) ?? "",
         Optional = optional,
         Default = defaultValue,
       });
@@ -2311,16 +2375,19 @@ public class Script_Instance : GH_ScriptInstance
 
   // Absent or explicitly null reads as null; a non-string of any other kind is
   // an error rather than a silent ToString().
-  static string JsonString(JsonElement o, string key, string where)
+  // `key` is the CANONICAL spelling and is lowered here, so no caller has to
+  // remember that the map is folded.
+  static string JsonString(Dictionary<string, JsonElement> o, string key, string where)
   {
     JsonElement e;
-    if (!o.TryGetProperty(key, out e) || e.ValueKind == JsonValueKind.Null) return null;
+    if (!o.TryGetValue(key.ToLowerInvariant(), out e) || e.ValueKind == JsonValueKind.Null)
+      return null;
     if (e.ValueKind != JsonValueKind.String)
       throw new Exception(where + " " + key + " must be a string");
     return e.GetString();
   }
 
-  static string JsonRequiredString(JsonElement o, string key, string where)
+  static string JsonRequiredString(Dictionary<string, JsonElement> o, string key, string where)
   {
     var v = JsonString(o, key, where);
     if (v == null) throw new Exception(where + " missing required " + key);
