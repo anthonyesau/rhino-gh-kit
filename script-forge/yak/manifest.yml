@@ -46,7 +46,7 @@ name: ScriptForge
 # installed version identify one specific build. Setting the two equal is the
 # failure mode: the slower number then either gets dragged along or freezes
 # while real fixes ship under it.
-version: 0.4.2-beta
+version: 0.4.3-beta
 
 authors:
   - Anthony Esau

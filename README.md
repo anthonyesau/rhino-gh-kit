@@ -74,7 +74,11 @@ below):
 
 ## Prerequisites
 
-- **Rhino 8**, with a Grasshopper document open.
+- **Rhino 8 SR21 or newer**, with a Grasshopper document open. Script Forge is
+  the only authoring path and its package declares that floor, so the kit
+  inherits it. Why SR21 and not 8.0 is recorded once, in the `<PackageReference>`
+  comment in
+  [script-forge/src/ScriptForge/ScriptForge.csproj](script-forge/src/ScriptForge/ScriptForge.csproj).
 - **Claude Code**, either with this repo installed as a plugin (see
   [Install](#install-once-per-machine)) or served live from a clone with
   `tooling/dev.sh` if you're developing the kit itself.
@@ -131,16 +135,29 @@ This clones a **managed, read-only** copy under `~/.claude/plugins/`; don't hand
 
 ### Script Forge
 
-Download the latest `.yak` from this repo's [Releases](../../releases) page,
-then install it from that folder:
+**Needs Rhino 8 SR21 or newer** (see [Prerequisites](#prerequisites)). Download
+the latest `.yak` from this repo's [Releases](../../releases) page, then use any
+of these — they do the same thing:
 
-```bash
-yak install --source ~/Downloads ScriptForge
-```
+- **Drag it onto an open Rhino window**, or double-click it. Rhino 8 registers
+  `.yak` as a document type it opens; Rhino 7 does not.
+- **Rhino's command line**, which is the scriptable equivalent and the one an
+  agent can drive (`mcp__rhino__run_command`, or `RhinoApp.RunScript`):
 
-`yak install` needs a `--source` naming the folder holding the `.yak` — it is
-not on the public Yak server (`yak search ScriptForge` finds nothing there), by
-design; see [docs/ship-a-plugin/publishing.md](docs/ship-a-plugin/publishing.md#cutting-a-release).
+  ```
+  _-PackageManager _Install "/path/to/scriptforge-<version>-rh8_21-any.yak"
+  ```
+
+- **The CLI**, installing by name out of the folder holding the file:
+
+  ```bash
+  yak install --source ~/Downloads ScriptForge
+  ```
+
+  `yak install` needs that `--source`: the package is not on the public Yak
+  server (`yak search ScriptForge` finds nothing there), by design — see
+  [docs/ship-a-plugin/publishing.md](docs/ship-a-plugin/publishing.md#cutting-a-release).
+
 Restart Rhino afterward — there is no hot reload on macOS.
 
 **Building it yourself** is the contributor path, not the only one:

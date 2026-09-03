@@ -249,7 +249,7 @@ git operation targets the repository containing `--repo`, never the kit, so a
 project consuming the kit from elsewhere tags and releases *itself*.
 
 Two things worth knowing anyway. The `.yak` filename is generated, not chosen —
-`<name>-<version>-rh<abi>-any.yak`, lowercased, with the ABI (`rh8_34`) coming from
+`<name>-<version>-rh<abi>-any.yak`, lowercased, with the ABI (`rh8_21`) coming from
 the SDK it built against. And `package` also drops a copy into `$YAK_LOCAL_REPO`,
 so the version you just built is immediately installable locally — the same
 artifact, not a second one.

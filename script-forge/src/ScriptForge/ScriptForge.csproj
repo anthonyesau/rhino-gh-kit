@@ -52,7 +52,7 @@
          assembly name independent of each other.
          Keep <Version> in step with yak/manifest.yml; tooling/publish.sh
          refuses to build if the two have drifted. -->
-    <Version>0.4.2-beta</Version>
+    <Version>0.4.3-beta</Version>
     <Title>Script Forge</Title>
     <Company>Anthony Esau</Company>
     <Authors>Anthony Esau</Authors>
@@ -61,22 +61,39 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- PINNED, not floating. `yak build` derives the package's distribution tag
-         from the RhinoCommon this is compiled against — 8.34 produces
-         `…-rh8_34-any.yak`, which declares "requires Rhino 8 SR34 or newer" and
-         refuses to install below it. With `Version="8.*"` that floor was
-         whatever NuGet resolved on build day: it rose silently with every McNeel
-         service release, and the same commit built on two machines produced two
-         different packages.
+    <!-- PINNED, not floating, and the pin IS the compatibility floor. `yak build`
+         derives the package's distribution tag from the RhinoCommon this is
+         compiled against — 8.21 produces `…-rh8_21-any.yak`, which declares
+         "requires Rhino 8 SR21 or newer" and refuses to install below it. With
+         `Version="8.*"` that floor would be whatever NuGet resolved on build day:
+         it rises silently with every McNeel service release, and the same commit
+         built on two machines produces two different packages.
 
-         8.0 through 8.34 all compile, so this is not a compiler constraint —
-         it is a claim about what has been TESTED. The plugin reaches
-         RhinoCodePluginGH (ScriptVariableParam, Python3Component,
-         IScriptComponent) purely by reflection, so the compiler never checks the
-         one dependency most likely to move between service releases; a green
-         build against an older SDK would prove nothing. This is the SR that gets
-         tested. Lower it deliberately, after testing on that Rhino. -->
-    <PackageReference Include="Grasshopper" Version="8.34.26223.11001" ExcludeAssets="runtime" />
+         8.21 is the lowest STABLE Grasshopper package at or above the real floor,
+         which is the higher of two independent limits:
+
+           SR18 — the script-component API. Script Forge reaches
+             RhinoCodePlatform.GH.IScriptComponent (settable `Text`),
+             ScriptVariableParam's `TypeHints.Select`, and `SetPersistentData`.
+             That surface shipped in SR18; before it the interface was
+             `IScriptObject` with a READ-ONLY `Text` and no writable source API at
+             all, so a forge cannot work below SR18 by any amount of fallback.
+
+           SR20 — the .NET host. Rhino installs and defaults to the .NET 8
+             runtime from 8.20 on; 8.12–8.19 run .NET 7 unless a user has
+             manually installed .NET 8. A net8.0 .gha therefore loads reliably
+             only from 8.20.
+
+         NuGet publishes no stable 8.20 (only `-rc` builds), so 8.21 is the
+         nearest honest pin. Targeting net7.0 instead would reach SR18 — a
+         net7.0 assembly runs on both hosts — but buys two service releases at
+         the cost of an out-of-support TFM, so it is deliberately not done.
+
+         The compiler cannot police any of this: RhinoCodePluginGH is reached
+         PURELY by reflection, so a green build against any SDK proves nothing
+         about the one dependency most likely to move between service releases.
+         Lowering this pin means testing on that Rhino, not just rebuilding. -->
+    <PackageReference Include="Grasshopper" Version="8.21.25188.17001" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <!-- WinForms + System.Drawing reference assemblies. Script Forge's own source

@@ -92,7 +92,9 @@ echo "dev clone: ${KIT:-<none — fall back to \$CLAUDE_PLUGIN_ROOT>}"
      of this repo. It is
      a Yak package, but a **privately distributed** one, installed with `yak install
      --source <folder holding the .yak> ScriptForge` — it is **not** on the public
-     server, so plain `yak install ScriptForge` fails. If it is absent, tell the user
+     server, so plain `yak install ScriptForge` fails. It also needs **Rhino 8 SR21
+     or newer** — below that Yak refuses the `rh8_21` package, which reads as an
+     install failure rather than a version problem. If it is absent, tell the user
      the project cannot author components until it is built and installed, and point
      at `${CLAUDE_PLUGIN_ROOT}/docs/use-the-forge/script-forge.md`. Don't offer a workaround; there
      isn't one.

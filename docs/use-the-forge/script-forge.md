@@ -22,12 +22,29 @@ the gist; what follows here is only what driving it from an agent needs.
 
 ## Installing it
 
+**Rhino 8 SR21 or newer.** The package is tagged `rh8_21` and Yak refuses to
+install it below that; the reasoning lives once in the `<PackageReference>`
+comment in
+[`script-forge/src/ScriptForge/ScriptForge.csproj`](../../script-forge/src/ScriptForge/ScriptForge.csproj).
+
 **Download the `.yak` from this repo's GitHub Releases page**, then install it
 from that folder:
 
 ```bash
 yak install --source ~/Downloads ScriptForge
 ```
+
+A human can also drag the `.yak` onto an open Rhino 8 window, or double-click it
+— Rhino 8 registers `.yak` as a document type it opens. **An agent's equivalent
+is the scriptable command**, which takes the file directly and needs no folder
+source:
+
+```
+_-PackageManager _Install "/path/to/<name>.yak"
+```
+
+Reachable through `mcp__rhino__run_command`, or from `run_csharp` via
+`RhinoApp.RunScript`. It prints `Successfully installed <name> (<version>)`.
 
 Building it yourself — `tooling/publish.sh --repo script-forge install` from a
 clone of this repo — is the contributor path, not the only one; see

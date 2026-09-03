@@ -118,6 +118,10 @@ name** in `.gitignore`, one line each — see its own comment for why a
 
 ### Environment
 
+- **Rhino 8 SR21 is the floor**, and the `<PackageReference>` comment in
+  `script-forge/src/ScriptForge/ScriptForge.csproj` is the single canonical
+  account of why (SR18 for the script-component API, SR20 for the .NET 8 host).
+  State the number elsewhere; keep the reasoning there.
 - **The forge cannot update itself** — it refuses its own `InstanceGuid`. Push
   `script-forge/script-forge.cs` to a live forge with the `forge-push` skill, or
   drive a *second* forge. When targeting many components at once, always
