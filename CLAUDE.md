@@ -198,10 +198,6 @@ it collides with Grasshopper's own entry.
   upgrades in place only while this holds; change it and the next one appears
   alongside its predecessor as a duplicate.
 
-Any second build of Script Forge loaded at the same time collides on that
-ComponentGuid — rename the loser's `.gha` to `.gha.disabled` to park it
-reversibly before smoke-testing.
-
 ### The header is load-bearing, not documentation
 
 `gh_codegen.py` derives param registration *and* the `RunScript` call
