@@ -7,6 +7,14 @@
 #   tooling/release.sh --repo script-forge --dry-run    # every check + the build; no tag, no release
 #   tooling/release.sh --repo script-forge              # tag, push, release
 #
+# A version carrying a SemVer prerelease suffix (the `-beta` in 0.4.5-beta) is
+# released as a GitHub PRERELEASE, so it never becomes the repo's "Latest".
+# `--prerelease` / `--no-prerelease` override the guess. This keeps the release
+# page honest about the same thing the version already says elsewhere: yak treats
+# a `-beta` package as a prerelease that Rhino's Package Manager hides unless
+# "include pre-releases" is ticked, so a release page offering it as the current
+# build contradicts the package a reader would go on to install.
+#
 # The point is that you never TYPE a version. It is read from the manifest,
 # the tag is derived from it, and the built .yak is checked to carry it — so the
 # three cannot drift into naming different builds. Every failure below has
@@ -39,12 +47,17 @@ KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$PWD"
 DRY_RUN=0
 NOTES_FILE=""
+# empty = decide from the version string; 1 / 0 = forced by a flag.
+PRERELEASE=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo)       REPO="$2"; shift 2 ;;
-    --dry-run)    DRY_RUN=1; shift ;;
-    --notes-file) NOTES_FILE="$2"; shift 2 ;;
-    *) echo "usage: release.sh [--repo <path>] [--notes-file <f>] [--dry-run]" >&2; exit 2 ;;
+    --repo)           REPO="$2"; shift 2 ;;
+    --dry-run)        DRY_RUN=1; shift ;;
+    --notes-file)     NOTES_FILE="$2"; shift 2 ;;
+    --prerelease)     PRERELEASE=1; shift ;;
+    --no-prerelease)  PRERELEASE=0; shift ;;
+    *) echo "usage: release.sh [--repo <path>] [--notes-file <f>] [--dry-run]" \
+            "[--prerelease|--no-prerelease]" >&2; exit 2 ;;
   esac
 done
 REPO="$(cd "$REPO" && pwd)"
@@ -92,6 +105,21 @@ TAG="${TAG_PREFIX}${VERSION}"
 # the installable spelling (no spaces — `yak install` rejects them), so a project
 # whose display name differs sets PRODUCT_NAME in its conf.
 TITLE="${PRODUCT_NAME:-$(awk '/^name:/ {print $2; exit}' "$REPO/$MANIFEST")} $VERSION"
+
+# A SemVer prerelease suffix (the `-beta` in 0.4.5-beta) marks the GitHub release
+# as a prerelease, so it is not the repo's "Latest" and does not reach anyone who
+# only ever looks there. This mirrors what the version already means everywhere
+# else: yak treats a `-beta` package as a prerelease that Rhino's Package Manager
+# hides unless "include pre-releases" is ticked, so a release page advertising it
+# as the current build contradicts the package a reader would then install.
+# `--prerelease` / `--no-prerelease` force it either way.
+if [ -z "$PRERELEASE" ]; then
+  case "$VERSION" in
+    *-*) PRERELEASE=1 ;;
+    *)   PRERELEASE=0 ;;
+  esac
+fi
+[ "$PRERELEASE" = "1" ] && RELEASE_KIND="prerelease" || RELEASE_KIND="full release"
 HEAD_SHA="$(git -C "$GIT_ROOT" rev-parse HEAD)"
 
 # -- 3. The tag must not already name a different commit --------------------
@@ -147,6 +175,7 @@ if [ "$DRY_RUN" = "1" ]; then
   echo "  would tag    $TAG at ${HEAD_SHA:0:9}"
   echo "  would push   $TAG to origin"
   echo "  would release $TAG titled \"$TITLE\" with $(basename "$YAKFILE")"
+  echo "  would mark   $TAG a $RELEASE_KIND"
   exit 0
 fi
 
@@ -161,10 +190,15 @@ echo "  pushed $TAG"
 NOTES_ARGS=(--generate-notes)
 [ -n "$NOTES_FILE" ] && NOTES_ARGS=(--notes-file "$NOTES_FILE")
 
+KIND_ARGS=()
+[ "$PRERELEASE" = "1" ] && KIND_ARGS=(--prerelease)
+
 (cd "$GIT_ROOT" && gh release create "$TAG" \
   --title "$TITLE" \
   "${NOTES_ARGS[@]}" \
+  "${KIND_ARGS[@]+"${KIND_ARGS[@]}"}" \
   "$YAKFILE")
+echo "  marked $TAG a $RELEASE_KIND"
 
 step "Done"
 echo "  $(cd "$GIT_ROOT" && gh release view "$TAG" --json url --jq .url)"
