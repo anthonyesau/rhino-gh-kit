@@ -342,8 +342,10 @@ component's descriptions are baked in at registration.
   it. A `-beta` version is also a **prerelease** to Rhino's Package Manager, hidden
   unless "include pre-releases" is ticked; that is usually what you want, but it does
   mean a beta looks absent to anyone who has not ticked it.
-- ✅ **Uninstall/disable the old published package before smoke-testing**, or its
-  components collide on `ComponentGuid` with the new build. It lives at
+- ✅ **Uninstall/disable the old published package before smoke-testing**, or you
+  cannot tell which build loaded: Grasshopper keeps one library per
+  `GH_AssemblyInfo.Id` and drops the other without saying so — no error, no
+  entry in `ComponentServer.LoadingExceptions` (measured on Rhino 8.35). It lives at
   `~/Library/Application Support/McNeel/Rhinoceros/packages/8.0/<Name>/<version>/`;
   renaming the `.gha` to `.gha.disabled` is the reversible way to park it.
 - ✅ **Script-component inputs are `Optional = true` by default — the generated hosts
@@ -641,9 +643,9 @@ grammar and the generator instead.
       directory as a package repository, so a plugin gets versioned, upgradeable
       installs — and `yak list` as a programmatic "which build is live" — with
       nothing published. Doing both at once is the trap: a loose
-      `Libraries/<Plugin>.gha` alongside the package loads every component twice
-      and collides on ComponentGuid, so the install stage parks it as
-      `.gha.disabled`. (A loaded `.gha` is memory-mapped, and overwriting one in
+      `Libraries/<Plugin>.gha` alongside the package leaves the same library in
+      two load paths with no way to tell which one is live, so the install stage
+      parks it as `.gha.disabled`. (A loaded `.gha` is memory-mapped, and overwriting one in
       place has crashed Rhino — the package path sidesteps that hazard entirely by
       writing a fresh directory rather than touching the mapped file. Never `cp`
       over a `.gha` Rhino may have open.)
@@ -668,9 +670,10 @@ grammar and the generator instead.
       usage and bails however the argument is quoted (verified 2026-08-22, yak
       8.x). Squash it instead — `MyPlugin`, not `My Plugin`. And treat a rename as
       a **new package line, not an upgrade**: the old `packages/8.0/<old-name>/`
-      directory survives it, both `.gha`s then load and collide on ComponentGuid,
-      so `yak uninstall <old-name>` and delete the stale `<old-name>-*.yak` from
-      `$YAK_LOCAL_REPO` before installing under the new one.
+      directory survives it, leaving two installs of the same library and no way
+      to tell which one loaded, so `yak uninstall <old-name>` and delete the
+      stale `<old-name>-*.yak` from `$YAK_LOCAL_REPO` before installing under
+      the new one.
     - **Only a Rhino restart loads a new build.** The file on disk changing does not
       swap what a running instance already mapped. Budget for this: it means every
       compiled-behaviour test costs a restart, which is the single biggest workflow

@@ -68,11 +68,10 @@ Two things to know before you trust a result:
   settings file, which Rhino rewrites on exit, so the pipeline can't set it
   for you. Date published stays blank regardless — a folder repository has no
   server-side publish timestamp.
-- **`install` parks a loose `Libraries/<Name>.gha` as `.gha.disabled`** — a
-  hand-copied `.gha` left alongside the package loads the component twice and
-  the two collide on the component's guid — and **deletes the previous
-  install of the same version before reinstalling**, which is safe with Rhino
-  running (`cp` over a mapped `.gha` is not).
+- **`install` parks a loose `Libraries/<Name>.gha` as `.gha.disabled`** — with a
+  copy in two load paths there is no way to tell which one is live — and
+  **deletes the previous install of the same version before reinstalling**,
+  which is safe with Rhino running (`cp` over a mapped `.gha` is not).
 - **Only a Rhino restart loads a new build.** The file on disk changing does not
   swap what a running instance already mapped, and a stale binary reporting a
   *newer* file on disk is the classic confusing result. Verify by reflecting on
@@ -212,7 +211,7 @@ yak install --source <that folder> ScriptForge 0.4.0-beta
 ```
 
 Handing them a bare `.gha` instead means a hand-copy into Grasshopper's
-`Libraries/`, which has no version story and collides with a packaged install.
+`Libraries/`, which has no version story at all.
 
 Two commands. There is deliberately **no `release` stage** in `publish.sh`: its
 stages are a straight line where each runs everything above it, so a release

@@ -23,8 +23,9 @@
 # each project makes for itself.
 #
 # This supersedes hand-copying the .gha into Grasshopper's `Libraries/` folder.
-# Doing both at once loads every component twice and collides on ComponentGuid,
-# so the install stage parks a loose copy as `.gha.disabled` when it finds one.
+# Doing both at once leaves the same library in two load paths with no way to
+# tell which one is live, so the install stage parks a loose copy as
+# `.gha.disabled` when it finds one.
 #
 # ---------------------------------------------------------------------------
 # tooling/publish.conf — sourced from the project root. Required:
@@ -248,9 +249,10 @@ echo "published (privately) -> $YAK_LOCAL_REPO/$(basename "$YAKFILE")"
 step "Installing $PKG_NAME $CSPROJ_VERSION from $YAK_LOCAL_REPO"
 
 # A loose .gha in Grasshopper's Libraries folder is how these projects installed
-# before packaging. Left in place it loads a SECOND copy of every component and
-# the two collide on ComponentGuid, so park it reversibly — rename, never delete,
-# since a `.gha.disabled` can be renamed back to bisect a build.
+# before packaging. Left in place it is a second copy of the same library in a
+# second load path, and nothing says which one Grasshopper kept — so park it
+# reversibly: rename, never delete, since a `.gha.disabled` can be renamed back
+# to bisect a build.
 if [ -f "$LIBRARIES/$GHA_NAME" ]; then
   mv "$LIBRARIES/$GHA_NAME" "$LIBRARIES/$GHA_NAME.disabled"
   echo "parked the hand-copied build: $LIBRARIES/$GHA_NAME.disabled"
