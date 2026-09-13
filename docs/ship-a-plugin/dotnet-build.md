@@ -813,7 +813,11 @@ artifact, but permanent tracked source) that compiles
 `Invoke` `ParseHeader`/`WarnDriftAndQuotes` without either method having any
 public surface. Every fixture asserts an *outcome* (parses cleanly, throws, or
 — C# only — reads as headerless) and, where the header is valid but flags
-something, a *problem count* that both parsers must agree on.
+something, a *problem count* that both parsers must agree on. A fixture may also
+pin resolved values both sides must produce identically — the component name and
+description, the pinned `instanceGuid`, and per param its access and its
+description — which is how the two spellings of a multi-line tooltip (`\n`
+escapes, or an array of lines) are held to one string on both parsers.
 
 **The disagreement the suite exists to pin, not paper over:** for every fixture
 that parses but has something wrong with it (a bad `default`, a duplicate

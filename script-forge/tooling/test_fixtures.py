@@ -145,8 +145,20 @@ EXPECT = {
     # spelling, which is what decides the built param's GH_ParamAccess.
     "mixed-case-access-cs.cs": {"outcome": "ok", "problems": 0,
                               "access": ["tree", "list", "item", "tree"]},
+    # The same two tooltips written both ways -- \n escapes here, an array of
+    # lines in multiline-array-cs.cs -- pinned to one expected string apiece, on
+    # the component AND on each param, so the two spellings cannot drift apart
+    # or drift between the parsers.
     "multiline-cs.cs":      {"outcome": "ok", "problems": 0,
-                              "description": "Line one.\nLine two.\nLine three."},
+                              "description": "Line one.\nLine two.\nLine three.",
+                              "param_descriptions": [
+                                  "First line of tip.\nSecond line of tip.",
+                                  "Just one line."]},
+    "multiline-array-cs.cs": {"outcome": "ok", "problems": 0,
+                              "description": "Line one.\nLine two.\nLine three.",
+                              "param_descriptions": [
+                                  "First line of tip.\nSecond line of tip.",
+                                  "Just one line."]},
     "orphan-name-cs.cs":    {"outcome": "ok", "problems": 0},
     "pascal-keys-cs.cs":    {"outcome": "ok", "problems": 0},
     "pinned-cs.cs":         {"outcome": "ok", "problems": 0,
@@ -296,6 +308,16 @@ def main(argv):
                     row_fail.append(f"python access {py_access} != {exp['access']}")
                 if cs.get("access") != exp["access"]:
                     row_fail.append(f"csharp access {cs.get('access')} != {exp['access']}")
+
+            if "param_descriptions" in exp:
+                want = exp["param_descriptions"]
+                py_desc = [q["description"] for q in
+                           py["meta"]["inputs"] + py["meta"]["outputs"]]
+                if py_desc != want:
+                    row_fail.append(f"python param descriptions {py_desc} != {want}")
+                if cs.get("paramDescriptions") != want:
+                    row_fail.append(f"csharp param descriptions "
+                                     f"{cs.get('paramDescriptions')} != {want}")
 
             if "description" in exp and py["meta"]["description"] != exp["description"]:
                 row_fail.append(f"python description {py['meta']['description']!r} != "

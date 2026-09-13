@@ -2289,7 +2289,7 @@ public class Script_Instance : GH_ScriptInstance
       var meta = new HeaderMeta { OpenerStyle = opener };
       var obj = JsonKeys(root, "header", ComponentKeys, meta.Warnings);
       meta.Name = JsonRequiredString(obj, "name", "header");
-      meta.Desc = JsonRequiredString(obj, "description", "header");
+      meta.Desc = JsonRequiredText(obj, "description", "header");
       meta.Nick = JsonString(obj, "nickname", "header") ?? meta.Name;
       meta.Icon = JsonString(obj, "icon", "header");
       meta.Language = JsonString(obj, "language", "header");
@@ -2365,7 +2365,7 @@ public class Script_Instance : GH_ScriptInstance
         Nickname = JsonString(p, "nickname", where) ?? name,
         Hint = JsonRequiredString(p, "type", where),
         Access = access,
-        Desc = JsonString(p, "description", where) ?? "",
+        Desc = JsonText(p, "description", where) ?? "",
         Optional = optional,
         Default = defaultValue,
       });
@@ -2390,6 +2390,39 @@ public class Script_Instance : GH_ScriptInstance
   static string JsonRequiredString(Dictionary<string, JsonElement> o, string key, string where)
   {
     var v = JsonString(o, key, where);
+    if (v == null) throw new Exception(where + " missing required " + key);
+    return v;
+  }
+
+  // A prose key — a description — which may be written either as one string or
+  // as an array of strings, one element per line, joined with a newline. The two
+  // spellings are exactly equivalent; the array exists so a long tooltip can be
+  // laid out as lines in the header rather than as one string carrying \n
+  // escapes. Everything downstream still sees one string.
+  // SYNC: gh_meta.py's _json_text.
+  static string JsonText(Dictionary<string, JsonElement> o, string key, string where)
+  {
+    JsonElement e;
+    if (!o.TryGetValue(key.ToLowerInvariant(), out e) || e.ValueKind == JsonValueKind.Null)
+      return null;
+    if (e.ValueKind == JsonValueKind.String) return e.GetString();
+    if (e.ValueKind == JsonValueKind.Array)
+    {
+      var lines = new List<string>();
+      foreach (var line in e.EnumerateArray())
+      {
+        if (line.ValueKind != JsonValueKind.String)
+          throw new Exception(where + " " + key + " must be a string or an array of strings");
+        lines.Add(line.GetString());
+      }
+      return string.Join("\n", lines);
+    }
+    throw new Exception(where + " " + key + " must be a string or an array of strings");
+  }
+
+  static string JsonRequiredText(Dictionary<string, JsonElement> o, string key, string where)
+  {
+    var v = JsonText(o, key, where);
     if (v == null) throw new Exception(where + " missing required " + key);
     return v;
   }

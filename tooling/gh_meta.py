@@ -139,11 +139,15 @@ def parse_header(path):
 
 ACCESS_MODES = ("item", "list", "tree")
 
-# Component keys that must be strings when present; `name` and `description` are
-# additionally required.
-_JSON_STR_KEYS = ("name", "nickname", "description", "category", "subcategory",
+# Component keys that must be strings when present; `name` is additionally
+# required.
+_JSON_STR_KEYS = ("name", "nickname", "category", "subcategory",
                   "icon", "language", "exposure", "instanceGuid", "componentGuid")
 _JSON_LIST_KEYS = ("markers", "upgradeFrom")
+# Keys whose value is prose and may therefore be written either as one string or
+# as an array of strings, one element per line. `description` is required, so it
+# is not in _JSON_STR_KEYS above -- its presence is checked separately.
+_JSON_TEXT_KEYS = ("description",)
 
 # Every key the grammar knows, at the component level and inside a param object.
 # A key outside these sets is still ignored -- that is the forward-compatibility
@@ -154,7 +158,8 @@ _JSON_LIST_KEYS = ("markers", "upgradeFrom")
 # SYNC: Script Forge's ComponentKeys / ParamKeys.
 _JSON_COMPONENT_KEYS = frozenset(
     k.lower() for k in
-    _JSON_STR_KEYS + _JSON_LIST_KEYS + ("inputs", "outputs", "guid"))
+    _JSON_STR_KEYS + _JSON_LIST_KEYS + _JSON_TEXT_KEYS
+    + ("inputs", "outputs", "guid"))
 _JSON_PARAM_KEYS = frozenset(
     k.lower() for k in ("name", "variableName", "nickname", "type", "access",
                         "description", "optional", "default"))
@@ -199,6 +204,23 @@ def _fold_keys(obj, where, known, warnings):
         if low not in known:
             warnings.append(f"{where}: unknown key {key!r} -- ignored")
     return folded
+
+
+def _json_text(value, where, key):
+    """A prose value as one string: either a string, or an array of strings
+    joined with a newline, one array element per line.
+
+    The array spelling exists so a long tooltip can be laid out as lines in the
+    header instead of one string carrying `\n` escapes; the two are exactly
+    equivalent, and every consumer downstream still sees one string.
+    SYNC: Script Forge's JsonText.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return "\n".join(value)
+    raise HeaderError(
+        f"{where}: {key!r} must be a string or an array of strings")
 
 
 def _parse_json_header(lines, start, path):
@@ -253,7 +275,7 @@ def _parse_json_header(lines, start, path):
         "category": obj.get("category"),
         "subcategory": obj.get("subcategory"),
         "icon": obj.get("icon"),
-        "description": obj["description"],
+        "description": _json_text(obj["description"], path, "description"),
         "instance_guid": obj.get("instanceGuid"),
         "component_guid": obj.get("componentGuid"),
         "exposure": obj.get("exposure"),
@@ -280,7 +302,7 @@ def _json_params(obj, key, path, warnings):
             raise HeaderError(f"{where} is not an object")
         p = _fold_keys(p, where, _JSON_PARAM_KEYS, warnings)
 
-        for k in ("name", "variableName", "nickname", "type", "description"):
+        for k in ("name", "variableName", "nickname", "type"):
             if k in p and not isinstance(p[k], str):
                 raise HeaderError(f"{where}: {k!r} must be a string")
         for k in ("name", "type", "access"):
@@ -308,7 +330,8 @@ def _json_params(obj, key, path, warnings):
             "nickname": p.get("nickname", name),
             "hint": p["type"],
             "access": access,
-            "description": p.get("description", ""),
+            "description": (_json_text(p["description"], where, "description")
+                            if "description" in p else ""),
             "optional": p.get("optional", True),
             # None means "no declared default". A literal `"default": null` is
             # not a usable default for any supported type, so the two collapsing

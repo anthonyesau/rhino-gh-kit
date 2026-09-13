@@ -32,36 +32,55 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Glob rather than pin the version segment: ScriptForge.csproj's
-         FrameworkReference is what actually restores this ref pack into the
-         local NuGet cache, on its own schedule, so a literal version here goes
-         stale the moment that restore moves without this project's noticing.
-         A single item match is required for %(FullPath) below to resolve to
-         one path rather than a `;`-joined list. -->
-    <_WindowsFormsRef Include="$(NuGetPackageRoot)microsoft.windowsdesktop.app.ref/8.*/ref/net8.0/System.Windows.Forms.dll" />
-  </ItemGroup>
-
-  <PropertyGroup>
-    <WindowsFormsRefPath>@(_WindowsFormsRef)</WindowsFormsRefPath>
-  </PropertyGroup>
-
-  <ItemGroup>
     <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
-    <!-- The generated body compiles against GH_Canvas : Control (a WinForms
-         type), even though nothing this harness ever calls reaches that code
-         path. Unlike src/ScriptForge/ScriptForge.csproj, this project is an
-         Exe with its own apphost, so a `<FrameworkReference
-         Include="Microsoft.WindowsDesktop.App.WindowsForms" />` would add that
-         shared runtime to its runtimeconfig.json and the app would then refuse
-         to *launch* on macOS (no such runtime installed), regardless of
-         whether the WinForms code path is ever reached. Referencing the
-         reference-assembly DLL directly resolves the same types for the
-         compiler without registering a runtime dependency. -->
-    <Reference Include="System.Windows.Forms" Condition="'$(WindowsFormsRefPath)' != ''">
-      <HintPath>$(WindowsFormsRefPath)</HintPath>
-      <Private>false</Private>
-    </Reference>
   </ItemGroup>
+
+  <!-- The generated body compiles against GH_Canvas : Control (a WinForms
+       type), even though nothing this harness ever calls reaches that code
+       path. Unlike src/ScriptForge/ScriptForge.csproj, this project is an Exe
+       with its own apphost, so a `<FrameworkReference
+       Include="Microsoft.WindowsDesktop.App.WindowsForms" />` would add that
+       shared runtime to its runtimeconfig.json and the app would then refuse to
+       *launch* on macOS (no such runtime installed), regardless of whether the
+       WinForms code path is ever reached. Referencing the reference-assembly
+       DLL directly resolves the same types for the compiler without
+       registering a runtime dependency.
+
+       The pick happens in a TARGET, not at evaluation: a top-level property
+       holding `@(_WindowsFormsRef)` is stored unexpanded (properties evaluate
+       before items) and only flattens when something consumes it, so no
+       string function can inspect it there. Inside a target the items are
+       live, so the list can be collapsed to one path before it becomes a
+       HintPath.
+
+       Collapsing is the point: the NuGet cache holds every 8.x ref pack any
+       restore ever pulled, so the glob routinely matches more than one and a
+       `;`-joined list is not a HintPath — the reference fails to resolve
+       (MSB3245) and `GH_Canvas : Control` lands as CS0012. WHICH match wins is
+       immaterial; these are compile-time reference assemblies for a code path
+       the harness never executes.
+
+       The glob itself rather than a pinned version: ScriptForge.csproj's
+       FrameworkReference is what restores this ref pack into the cache, on its
+       own schedule, so a literal version here goes stale the moment that
+       restore moves without this project's noticing. -->
+  <Target Name="PickWindowsFormsRef" BeforeTargets="BeforeResolveReferences">
+    <ItemGroup>
+      <_WindowsFormsRef Include="$(NuGetPackageRoot)microsoft.windowsdesktop.app.ref/8.*/ref/net8.0/System.Windows.Forms.dll" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_WindowsFormsRefPath>@(_WindowsFormsRef)</_WindowsFormsRefPath>
+      <_WindowsFormsRefPath Condition="$(_WindowsFormsRefPath.Contains(';'))">$(_WindowsFormsRefPath.Split(';')[0])</_WindowsFormsRefPath>
+    </PropertyGroup>
+    <Error Condition="'$(_WindowsFormsRefPath)' == ''"
+           Text="no microsoft.windowsdesktop.app.ref 8.x ref pack in $(NuGetPackageRoot) -- build script-forge/src/ScriptForge first, its FrameworkReference is what restores one" />
+    <ItemGroup>
+      <Reference Include="System.Windows.Forms">
+        <HintPath>$(_WindowsFormsRefPath)</HintPath>
+        <Private>false</Private>
+      </Reference>
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <!-- NOT a direct `<Compile Include="../../script-forge.cs" />`: that class

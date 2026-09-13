@@ -81,11 +81,20 @@ class FixtureRunner
             var headerParamType = type.GetNestedType("HeaderParam", BindingFlags.NonPublic)
                 ?? throw new MissingMemberException(type.Name + ".HeaderParam not found -- did it get renamed?");
             var accessField = headerParamType.GetField("Access");
+            var descField = headerParamType.GetField("Desc");
             var access = new List<string>();
+            // Every param's tooltip, same inputs-then-outputs order, so a
+            // description written as an array of lines is pinned on the param
+            // surface too and not only on the component's own.
+            var paramDescriptions = new List<string>();
             foreach (var side in new[] { "Ins", "Outs" })
                 foreach (var d in (IEnumerable)headerMetaType.GetField(side).GetValue(meta))
+                {
                     access.Add((string)accessField.GetValue(d));
+                    paramDescriptions.Add((string)descField.GetValue(d));
+                }
             entry["access"] = access;
+            entry["paramDescriptions"] = paramDescriptions;
 
             bool isPython = path.EndsWith(".py", StringComparison.OrdinalIgnoreCase);
             var log = (IList)Activator.CreateInstance(typeof(List<string>));

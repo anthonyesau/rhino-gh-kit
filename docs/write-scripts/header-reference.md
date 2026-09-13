@@ -124,7 +124,7 @@ skip **Compiled component** entirely unless a source is also headed for
 | Key | Required | Forged component | Compiled component |
 |---|---|---|---|
 | `name` | **yes** | Component Name (menus, tooltips). Also what the `name` target keyword matches. | `Name` |
-| `description` | **yes** | The hover tooltip. **No double quotes** (see [Warnings](#warnings)). | same |
+| `description` | **yes** | The hover tooltip. May be an array of strings, one per line — see [Multi-line tooltips](#multi-line-tooltips). **No double quotes** (see [Warnings](#warnings)). | same |
 | `nickname` | no | Canvas nickname. Defaults to `name`. Matched by the `nickname` target keyword. | `NickName`, same default |
 | `category` | no | *ignored* | Ribbon tab |
 | `subcategory` | no | *ignored* | Ribbon panel |
@@ -206,7 +206,7 @@ Each entry of `inputs` / `outputs` is a JSON object:
 | `nickname` | no | The `NickName` a compiled build draws. Never reaches a forged script component. |
 | `type` | **yes** | The type-hint converter. See [Type hints](#type-hints). |
 | `access` | **yes** | `item`, `list`, or `tree`. |
-| `description` | no | The param tooltip. Defaults to empty — but write one; a param with no tooltip is a defect. |
+| `description` | no | The param tooltip. Defaults to empty — but write one; a param with no tooltip is a defect. May be an array of strings, one per line — see [Multi-line tooltips](#multi-line-tooltips). |
 | `optional` | no | Whether the param may be left unwired. Defaults to `true`. Inputs only. |
 | `default` | no | A declared default value. Inputs only. See [Defaults](#optional-and-default). |
 
@@ -413,6 +413,32 @@ the time the parser hands it over:
 There is nothing header-specific to know here, which is the point: write the
 escape JSON already defines, and the tooltip on the canvas breaks where you
 said it does.
+
+**A description may also be written as an array of strings** — one element per
+line, joined with a newline, so a tooltip that is a list reads as a list in the
+source:
+
+```json
+{ "name": "Target", "type": "object", "access": "tree",
+  "description": [
+    "Which component each branch updates:",
+    "• a guid",
+    "• the keyword name",
+    "• null to create new"
+  ] }
+```
+
+The two spellings are exactly equivalent — both resolve to one string before
+any consumer sees them, and the component-level `description` takes an array on
+the same terms.
+
+**One element is one line, not a wrap point.** Splitting a paragraph across
+elements to keep the source narrow puts hard newlines in the tooltip; a
+paragraph that should flow stays a single string. Arrays are for text that is
+line-structured to begin with.
+
+Only `description` takes an array — every other string key (`name`, `nickname`,
+`icon`, the guids) must be a string, and an array there is an error.
 
 ---
 
@@ -622,7 +648,8 @@ reason. Naming a file explicitly on the command line parses it regardless.
 `python3 tooling/gh_meta.py --all --check` (from the project root) validates
 every root-level `.cs` **and** `.py` source that has not opted out:
 
-- the body parses as JSON, and `name` and `description` are present;
+- the body parses as JSON, and `name` and `description` are present
+  (`description`, at either level, may be a string or an array of strings);
 - **no two keys of one object differ only in case** (see [Case](#case)). An
   *unrecognized* key is reported as a `WARN` line instead and leaves the exit
   code alone — being ignored is what it is for;

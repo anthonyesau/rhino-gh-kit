@@ -150,7 +150,13 @@ is the canonical SDK-mode file; every other `.py` example is script mode.
   in the header's `"inputs"` / `"outputs"` arrays, in plain language for someone
   who does not know the component; `forge-push` stamps them on every pass. A
   param whose tooltip still reads the generic *"Converts to a collection of…"*
-  converter text is a defect. Each of the two levels has a volatile slot and a
+  converter text is a defect. A tooltip that wants more than one line can be
+  written either as `\n` escapes in one string or as an **array of strings, one
+  element per line** (an empty element is a blank line) — equivalent, and
+  available on the component's `"description"` as well as each param's. One
+  element is one line, not a wrap point, so keep flowing prose as a single
+  string; `header-reference.md`'s *Multi-line tooltips* has both spellings side
+  by side. Each of the two levels has a volatile slot and a
   durable one and only the durable one is archived into the `.gh`, which is why
   a tooltip can come back generic after a reopen; `identity-properties.md` has
   the table and the measurements. There is no "restamp after every push" rule —
