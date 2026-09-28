@@ -228,7 +228,8 @@ leaves `VariableName == "OutKeys"`, flips `HasPrettyName` true, makes `GetParamR
 return `"Keys (OutKeys)"`, and GH then rewrites the signature to
 `RunScript(List<string> Keys, ref object OutKeys)` — an input and an output labelled
 `Keys` coexisting with **zero** errors. The remaining rows are decompiled from
-`RhinoCodePluginGH.gha` / `Grasshopper.dll`; the `ToolTip` row was confirmed
+`RhinoCodePluginGH.gha` / `Grasshopper.dll` (how:
+[gh-internals.md](gh-internals.md#reading-grasshoppers-source)); the `ToolTip` row was confirmed
 behaviourally on 2026-08-05 — see `docs/write-scripts/identity-properties.md`.
 
 | | script component (`ScriptVariableParam`) | compiled (`GH_Component`) |
@@ -397,6 +398,10 @@ component's descriptions are baked in at registration.
   be unloaded from the AppDomain and .NET Hot Reload does not apply (Rhino loads the
   assembly itself; the IDE has no hook). This is *why* the canvas/Forge path stays the
   iteration surface and compilation stays the release step — not a workaround for it.
+  ✅ A build *can* be test-loaded beside the installed copy, into a fresh
+  `AssemblyLoadContext` — useful for a canvas tool, never for a component library,
+  whose types Grasshopper registered at startup. See
+  [gh-internals.md](gh-internals.md#testing-a-canvas-tool-without-a-restart).
 
 ## Extending a compiled component from its single canonical file
 
@@ -679,7 +684,9 @@ grammar and the generator instead.
       compiled-behaviour test costs a restart, which is the single biggest workflow
       difference from script components, where a push takes effect on the next solve.
       Verify which binary is live by reflecting on something the new build changed
-      (a param type, a new member) — never by the file's timestamp.
+      (a param type, a new member) — never by the file's timestamp. A canvas tool
+      (no components) can skip the restart with a test load; see
+      [gh-internals.md](gh-internals.md#testing-a-canvas-tool-without-a-restart).
 
 ### The generator (`tooling/gh_codegen.py`)
 

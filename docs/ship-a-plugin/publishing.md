@@ -75,7 +75,9 @@ Two things to know before you trust a result:
 - **Only a Rhino restart loads a new build.** The file on disk changing does not
   swap what a running instance already mapped, and a stale binary reporting a
   *newer* file on disk is the classic confusing result. Verify by reflecting on
-  something the new build changed, not by looking at the file.
+  something the new build changed, not by looking at the file. (A canvas tool can
+  be test-loaded without installing or restarting — see
+  [gh-internals.md](gh-internals.md#testing-a-canvas-tool-without-a-restart).)
 - **The `.yak` carries `icon.png`**, rasterized from the project's SVG icon by
   the package stage — that's the Package Manager entry's icon, unrelated to
   any canvas icon the build embeds as a resource. The manifest's `icon:` key

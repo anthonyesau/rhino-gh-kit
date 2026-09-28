@@ -1,6 +1,6 @@
 ---
 name: ship-plugin
-description: TRIGGER — load before building, installing, versioning or releasing a **compiled** Grasshopper plugin (`.gha` / `.yak`) in a project that uses this kit's pipeline, whenever: cutting a GitHub Release or attaching a `.yak` to one; running `publish.sh` at any stage or reaching for `dotnet build`, `yak build`, `yak install` or `gh release create` by hand; bumping or reconciling a package / assembly / plugin version; a pre-commit hook refuses a commit over a version mismatch or an un-bumped package version; working out which build Rhino actually has loaded; or standing a new compiled-plugin project up. SKIP for authoring a script component's body (`write-csharp-script` / `write-python-script`) and for pushing source onto a live canvas (`forge-push`) — nothing here compiles a script component or forges anything.
+description: TRIGGER — load before building, installing, versioning or releasing a **compiled** Grasshopper plugin (`.gha` / `.yak`) in a project that uses this kit's pipeline, whenever: cutting a GitHub Release or attaching a `.yak` to one; running `publish.sh` at any stage or reaching for `dotnet build`, `yak build`, `yak install` or `gh release create` by hand; bumping or reconciling a package / assembly / plugin version; a pre-commit hook refuses a commit over a version mismatch or an un-bumped package version; working out which build Rhino actually has loaded; test-loading a build without a Rhino restart; reaching into Grasshopper internals from a compiled plugin (clusters, another object's context menu or attributes); or standing a new compiled-plugin project up. SKIP for authoring a script component's body (`write-csharp-script` / `write-python-script`) and for pushing source onto a live canvas (`forge-push`) — nothing here compiles a script component or forges anything.
 allowed-tools: Bash, Read, Edit, Grep, Glob, mcp__rhino__run_csharp
 ---
 
@@ -123,6 +123,11 @@ are untagged on purpose** — tag one by hand only when the user wants a marker.
 
 **Only a Rhino restart loads a new build.** The file on disk changing does not
 swap what a running instance already mapped, and there is no hot reload on macOS.
+The one exception is a test load: a **canvas tool** (no components) can be loaded
+beside the installed copy into a fresh `AssemblyLoadContext` and driven through its
+own `Attach` / `Detach` — see
+`${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/gh-internals.md`. A component library
+cannot; its types were registered at startup.
 
 **Verify by reflecting on something the new build changed, never by the `.gha`'s
 timestamp** — a stale binary reporting a newer file on disk is the classic
@@ -158,3 +163,4 @@ Two rules that are easy to break and expensive to unpick:
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/publishing.md` — versioning, tags, why the release step is its own script
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/dotnet-build.md` — the pipeline in full, and the new-project checklist
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/file-naming.md` — the gate `publish.sh` runs first
+- `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/gh-internals.md` — clusters, canvas menus, swapped attributes, test-loading a build, decompiling Grasshopper

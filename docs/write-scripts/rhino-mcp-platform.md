@@ -172,6 +172,17 @@ finishes.
 - **`GH_DocumentIO.SaveQuiet(path)` does not rebind `FilePath`.** It is the safe way to
   snapshot a document to a scratch path for a reopen test without touching what the user
   has open.
+- **A payload that opens a menu or modal dialog does not return until a person closes
+  it**, and the Platform abandons the call after 300 s. A context menu appears above
+  every app and closes at the first click elsewhere; an Eto dialog opens *behind* the
+  frontmost app, where nobody may notice it. Rhino keeps answering meanwhile: a later
+  call runs nested inside the modal loop, against a half-finished operation. Drive the
+  code path behind the UI instead — recipe and details in
+  [gh-internals.md](../ship-a-plugin/gh-internals.md#menus-and-dialogs-block-the-call-that-opens-them).
+- **`screencapture` fails from the agent's shell** with *"could not create image from
+  display"* (macOS screen-recording permission). Verify by reading state through
+  `run_csharp`, or use the Platform's `get_viewport_image` for a Rhino viewport — not a
+  shell screenshot of the Grasshopper window.
 
 ## Related
 
