@@ -25,14 +25,16 @@ the **`ship-plugin`** skill instead of this file; this is the reference behind i
 package → install → push:
 
 ```bash
-tooling/publish.sh --repo script-forge              # gh_meta.py --all --check + gh_codegen.py + dotnet build
-tooling/publish.sh --repo script-forge package      # ... + yak build into the private folder repo
+tooling/publish.sh --repo script-forge build        # gh_meta.py --all --check + gh_codegen.py + dotnet build
+tooling/publish.sh --repo script-forge              # ... + yak build, copied into $YAK_LOCAL_REPO (the default)
 tooling/publish.sh --repo script-forge install      # ... + yak install from that repo
 tooling/publish.sh --repo script-forge push         # ... + PUBLIC, permanent upload; prompts first
 ```
 
 `--repo` names the project directory and defaults to `.`; this kit's compiled
-plugin sits in `script-forge/`, so its own recipes carry the flag.
+plugin sits in `script-forge/`, so its own recipes carry the flag. With no stage named
+the pipeline runs through `package`, so every compile leaves an installable `.yak`
+behind; name `build` to stop short of it.
 
 Underneath, that is:
 
@@ -52,10 +54,12 @@ Two things to know before you trust a result:
   hand-copied `.gha`. `yak install --source <dir>` accepts any directory —
   verified against `yak` 8.x, both `search` and `install` — which buys
   versioned, upgradeable installs and a `yak list` version check without
-  publishing anything. `install` copies the built package into
+  publishing anything. `package` copies the built package into
   `$YAK_LOCAL_REPO` (default `~/.rhino-gh-kit/yak-local-repo` — no space in
   the path, since `yak install --source` fails on one — outside the repo so
-  `rm -rf build/` can't take it) and installs from there. `push` is the only
+  `rm -rf build/` can't take it), and `install` installs from there. To point
+  every project on a machine at one folder, export `YAK_LOCAL_REPO` from the
+  shell profile; the environment outranks a project's `publish.conf`. `push` is the only
   stage that reaches yak.rhino3d.com, and whether a project may take it
   belongs in that project's `CLAUDE.md`.
 - **Register the local repo as a package source in Rhino, or the Package
@@ -72,6 +76,12 @@ Two things to know before you trust a result:
   copy in two load paths there is no way to tell which one is live — and
   **deletes the previous install of the same version before reinstalling**,
   which is safe with Rhino running (`cp` over a mapped `.gha` is not).
+- **Renaming a package does not remove the old one.** The manifest `name:` can change
+  freely, but the plugin GUID stays, so an old package left installed loads the same
+  plugin a second time. `yak uninstall <old-name>` first. `yak` stamps the GUID into
+  each installed manifest as a `guid:` keyword, and `install` warns when another
+  installed package carries the same one. What Rhino does with two packages sharing a
+  GUID has not been tested.
 - **Only a Rhino restart loads a new build.** The file on disk changing does not
   swap what a running instance already mapped, and a stale binary reporting a
   *newer* file on disk is the classic confusing result. Verify by reflecting on

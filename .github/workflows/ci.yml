@@ -36,4 +36,4 @@ jobs:
         run: bash -n hooks/gh-workflow-guard.sh tooling/*.sh tooling/hooks/pre-commit
 
       - name: Build ScriptForge.gha
-        run: tooling/publish.sh --repo script-forge
+        run: tooling/publish.sh --repo script-forge build

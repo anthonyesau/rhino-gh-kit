@@ -20,6 +20,9 @@ calls the kit's copy:
 "${CLAUDE_PLUGIN_ROOT}/tooling/release.sh" --repo <path> --dry-run
 ```
 
+With no stage named, `publish.sh` runs through **`package`**: every compile also
+drops the `.yak` into `$YAK_LOCAL_REPO`. Name `build` to stop before packaging.
+
 Inside the kit's own clone, drop the prefix and call the clone's copy
 (`tooling/publish.sh --repo …`), so you run what you just edited. Everywhere else
 use the `${CLAUDE_PLUGIN_ROOT}` form above.
@@ -45,7 +48,13 @@ below stays local or lands on a GitHub Release.
 
 **`install` and `release` write outside the repo** — into the Rhino packages
 folder and onto GitHub. Both are the intended everyday commands, but confirm
-before the first one in a session if the user only asked you to build.
+before the first one in a session if the user only asked you to build. (The
+default `package` stage writes outside it too, but only into `$YAK_LOCAL_REPO`.)
+
+**Renaming a package keeps its plugin GUID**, so the old package, still installed,
+would load the same plugin a second time. `yak uninstall <old-name>` before
+installing under the new name; `install` warns when another installed package
+carries the same `guid:` keyword.
 
 ## Cut a release
 

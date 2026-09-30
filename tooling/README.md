@@ -69,8 +69,8 @@ See [One install, or one per project?](../docs/maintain-the-kit/kit-releases.md#
 ## Release a compiled plugin
 
 ```bash
-tooling/publish.sh --repo script-forge              # validate + generate + build
-tooling/publish.sh --repo script-forge package      # ... + build a .yak into the private folder repo
+tooling/publish.sh --repo script-forge build        # validate + generate + build
+tooling/publish.sh --repo script-forge              # ... + build a .yak into the private folder repo (default)
 tooling/publish.sh --repo script-forge install      # ... + yak install it from that repo
 tooling/publish.sh --repo script-forge push         # ... + PUBLIC, permanent upload; prompts first
 ```
@@ -92,7 +92,8 @@ PACKAGE_ICON_SVG="icons/my-plugin.svg"            # optional; needs `icon: icon.
 **Installing means a yak package out of a private folder repository** — the default
 is `~/.rhino-gh-kit/yak-local-repo` (no space in the path — `yak install --source`
 fails on one), overridable with `YAK_LOCAL_REPO`, and one
-folder serves every project. A yak "source" can be any directory, so this gives
+folder serves every project — export `YAK_LOCAL_REPO` from the shell profile to
+choose that folder once per machine. A yak "source" can be any directory, so this gives
 versioned, upgradeable installs and a `yak list` version check without publishing
 anything. `push` is the only stage that reaches yak.rhino3d.com, and whether a
 project is allowed to take it belongs in that project's `CLAUDE.md`. Full key list

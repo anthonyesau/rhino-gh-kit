@@ -167,8 +167,8 @@ the rule has been broken — extend the header grammar and the generator instead
 every path in `script-forge/tooling/publish.conf` is relative to that folder:
 
 ```bash
-tooling/publish.sh --repo script-forge              # validate + generate + build   (no network, no install)
-tooling/publish.sh --repo script-forge package      # ... + build a .yak into the local repo
+tooling/publish.sh --repo script-forge build        # validate + generate + build   (no network, no install)
+tooling/publish.sh --repo script-forge              # ... + build a .yak into the local repo (the default stage)
 tooling/publish.sh --repo script-forge install      # ... + yak install it from that repo
 tooling/publish.sh --repo script-forge push         # ... + PUBLIC, permanent upload; prompts first
 ```

@@ -6,6 +6,9 @@
 #
 #   $KIT/tooling/publish.sh --repo <path> [build|package|install|push]
 #
+# With no stage named it runs through `package`, so every compile also leaves a
+# .yak in $YAK_LOCAL_REPO. `build` stops before packaging.
+#
 # Projects do not copy this file. They keep a three-line `tooling/publish.sh`
 # wrapper that execs this one, plus `tooling/publish.conf` holding the five or so
 # things that actually differ between projects. Before this was factored out, two
@@ -60,7 +63,10 @@
 #                                           #   non-standard Rhino install location.
 #   YAK_LOCAL_REPO="…"                      # default ~/.rhino-gh-kit/yak-local-repo
 #                                           #   (a machine-level folder shared by all
-#                                           #   projects; the environment wins over conf).
+#                                           #   projects; the environment wins over conf,
+#                                           #   so exporting it from the shell profile
+#                                           #   points every project on the machine at
+#                                           #   one folder).
 #                                           #   Must not contain a space — `yak install
 #                                           #   --source <path>` fails on one even when
 #                                           #   the shell passes it as a single argument
@@ -80,7 +86,7 @@ KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_YAK_LOCAL_REPO="${YAK_LOCAL_REPO:-}"
 
 REPO="$PWD"
-STAGE="build"
+STAGE="package"
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
@@ -279,6 +285,24 @@ INSTALLED="$PACKAGES/$PKG_NAME/$CSPROJ_VERSION/$GHA_NAME"
 ACTIVE="$(head -1 "$PACKAGES/$PKG_NAME/manifest.txt" 2>/dev/null || true)"
 [ "$ACTIVE" = "$CSPROJ_VERSION" ] || die "manifest.txt says '$ACTIVE', expected '$CSPROJ_VERSION'"
 echo "installed -> $INSTALLED"
+
+# yak stamps the plugin's GUID into the installed manifest as a `guid:` keyword.
+# A package renamed without uninstalling its predecessor leaves a second package
+# carrying the same GUID — the same plugin in two load paths, like the loose
+# Libraries/ copy parked above. Uninstalling another package is the user's call,
+# so name it rather than touch it.
+GUID_KW="$(grep -o 'guid:[0-9a-fA-F-]*' "$PACKAGES/$PKG_NAME/$CSPROJ_VERSION/manifest.yml" 2>/dev/null | head -1 || true)"
+if [ -n "$GUID_KW" ]; then
+  for other in "$PACKAGES"/*/*/manifest.yml; do
+    [ -f "$other" ] || continue
+    case "$other" in "$PACKAGES/$PKG_NAME/"*) continue ;; esac
+    if grep -qi "$GUID_KW" "$other"; then
+      OTHER_NAME="$(basename "$(dirname "$(dirname "$other")")")"
+      echo "WARNING: package '$OTHER_NAME' is also installed with $GUID_KW — the same plugin"
+      echo "  would load twice. If it is this package's old name: \"$YAK\" uninstall $OTHER_NAME"
+    fi
+  done
+fi
 echo "RESTART RHINO to load it."
 
 # One-time, per machine, and not settable from here: the Package Manager fills
