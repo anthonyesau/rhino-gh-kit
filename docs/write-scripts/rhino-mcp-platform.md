@@ -56,7 +56,9 @@ which does not go stale.
 ### Slots: which Rhino a call reaches
 
 ✅ 0.3.0. The router manages **slots**, one per Rhino, each with an animal name
-(`aardvark`) that persists across router restarts and Rhino restarts. `list_slots`
+(`aardvark`, `armadillo`). A name is not a stable handle: the same name has been
+seen on two different Rhino processes, and a restarted Rhino came back under a new
+one. Read it from `list_slots` each session rather than remembering it. `list_slots`
 returns them with `port`, `pid` and `adopted` — **`adopted: true` is a Rhino the user
 started** (its listener advertised itself), `false` one the router spawned.
 
