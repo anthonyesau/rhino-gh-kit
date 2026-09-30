@@ -113,3 +113,10 @@ picks which. It defaults to the current working directory, which holds no
 components in this kit, so both of the kit's own component sets are named above.
 A consuming project that keeps its components at its root can drop the flag.
 `--help` prints usage.
+
+The flat scan is deliberate: it matches what `gh_codegen.py` compiles, so `--all`
+is the ship list's gate. A component kept elsewhere for development only — a forged
+test runner in `tests/`, say — is checked by naming it:
+`python3 tooling/gh_meta.py --check tests/runner.cs` (one file, same checks, same exit
+code). Recursing would sweep `tests/`, `bin/` and `obj/` and demand a
+`gh-meta: ignore` token in every helper source there.

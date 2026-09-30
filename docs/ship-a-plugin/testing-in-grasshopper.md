@@ -63,9 +63,12 @@ references bind to what Rhino already has loaded:
 </Project>
 ```
 
-A test project is not a component source, so its `.cs` files are not headed by
-`@component`. Put `gh-meta: ignore` in the first line of each, so
-`gh_meta.py --check` pointed at the folder skips them.
+`gh_meta.py --all` scans only the root it is given, so neither it nor
+`check_filenames.py` sees `tests/`. A forged runner component kept there (a Run button
+and a Report panel on the canvas, say) is checked by naming it:
+`gh_meta.py --check tests/<runner>.cs`. Pointing `--all --root tests` at the folder
+instead flags every non-component `.cs` in it, each of which would then need a
+`gh-meta: ignore` token in its first lines.
 
 ## The loader
 
