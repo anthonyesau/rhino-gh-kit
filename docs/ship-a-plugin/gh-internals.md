@@ -87,6 +87,27 @@ every copy rebuilt by a commit serializes byte-identical. A copy just pasted wit
 `MutateAllIds` can differ from its original until the next commit, so read a mismatch
 as "resync", never as "diverged" — a false mismatch costs only a redundant resync.
 
+**A document built in code never byte-matches its own copy** ✅ — until it has been
+written and read back once. An in-memory `GH_Document` serializes its `Name` as `""`
+where every read-back copy says `"unnamed"`, and attributes never laid out keep their
+default bounds (150 × 20) where a read-back copy's are laid out. A cluster made with
+`CreateFromDocument(inMemoryDoc)` therefore never matches an entangled copy of itself.
+The first round trip is the only one that changes anything; after it, every further
+copy is byte-identical. Tools and test fixtures that assemble cluster contents in code
+should round-trip the document once before `CreateFromDocument`:
+
+```csharp
+var chunk = new GH_LooseChunk("Document");
+built.Write(chunk);
+var read = new GH_LooseChunk("Document");
+read.Deserialize_Binary(chunk.Serialize_Binary());
+var doc = new GH_Document();
+doc.Read(read);          // use this, not `built`
+```
+
+A cluster made on the canvas (select ▸ Cluster) and then copied does byte-match — the
+problem is specific to documents assembled in code.
+
 ### A cluster commit raises no event of its own
 
 ✅ The only signal is the undo record `DocumentModified` pushes after rebuilding the
@@ -96,10 +117,88 @@ every server document — cluster-editor documents included — and filter on
 
 The record holds one `GH_GenericObjectAction` per rebuilt cluster. Its target is the
 private field `m_object_id` on `GH_GenericObjectAction`; resolve it with
-`doc.FindObject(id, false)`.
+`doc.FindObject(id, false)`. Most other object actions — persistent data, nickname
+changes — derive from `GH_ObjectUndoAction`, which has its **own, separate** private
+`Guid m_object_id` ✅. Walk the action's type hierarchy for a `Guid` field of that name
+to cover both. `FindObject(id, topLevelOnly: false)` resolves a component's **param**
+too ✅, so a record leads to the exact input it changed.
 
 `UndoStateChanged` for `Undo` / `Redo` fires **after** the record has been applied ✅
-(`GH_UndoServer.PerformUndo`), so a handler sees the restored state.
+(`GH_UndoServer.PerformUndo`), so a handler sees the restored state. Undo restores into
+the **same `GH_Cluster` instance** ✅ — `FindObject` returns the same reference — but
+reads its whole inner document back, so **clusters nested inside it are new objects**
+after an undo or redo. Re-fetch a nested cluster from the parent's inner document
+rather than holding a reference across one.
+
+Record counts and names are on `doc.UndoServer` (`UndoCount`, `FirstUndoName`,
+`UndoNames`), not on `doc.UndoUtil`.
+
+### The undo action holds the other side of the commit
+
+`GH_GenericObjectAction` derives from `GH_ArchivedUndoAction`, whose protected
+`byte[] m_data` is the object serialized into a `GH_LooseChunk("data")` 📖. Each undo
+and redo swaps it with the live state (`Internal_Redo` just calls `Internal_Undo`), so
+**after any operation it holds the state from the other side of it**: the "before"
+after a commit or a redo, the "after" after an undo. A detached copy reads back ✅:
+
+```csharp
+var mData = typeof(GH_ArchivedUndoAction).GetField("m_data", BindingFlags.NonPublic | BindingFlags.Instance);
+var chunk = new GH_LooseChunk("data");
+chunk.Deserialize_Binary((byte[])mData.GetValue(action));
+var before = new GH_Cluster(); before.CreateAttributes();
+before.Read(chunk);   // in no document, with its full inner document
+```
+
+This is how to tell what a commit actually changed — for instance, which nested
+clusters differ between "before" and "after" by `DocumentId` and serialized bytes.
+That comparison is stable between a read-back "before" and a freshly committed "after"
+✅.
+
+### A cluster's inputs: their type, and matching them across copies
+
+`GH_Cluster.CreateInput(hook)` 📖 makes each new input param as:
+
+- a duplicate of the hook's **single recipient's** param type — a `Param_Number` when
+  the hook feeds a Number param;
+- with several recipients, the type they share, emitted by the component server;
+- otherwise a `Param_GenericObject`;
+
+then sets `Optional = true` and a new `InstanceGuid`. So a cluster input can hold
+persistent data ("defaults") exactly when that type can, and the type is decided inside
+the cluster.
+
+Entangled copies are read from the same serialized contents, so **their hooks share
+`InstanceGuid`s** ✅. `m_mapping.get_Hook(paramGuid)` ([above](#renaming-a-hook-never-reaches-the-clusters-params))
+gives the hook id, and that id finds the same input on another copy even after params
+were reordered.
+
+### Which file a document belongs to
+
+A cluster editor's document has `Owner` = the cluster (see
+[below](#grasshoppers-own-ui-handlers-can-be-driven-from-code)), and so does a
+cluster's **inner** document 📖 (`Owner = this`, `Nested = true`). A cluster nested in
+another answers `OnPingDocument()` with the **inner** document ✅ — whichever document
+it was added to. So one loop finds the top-level document — the file — for any
+document: a top-level one, an editor, an editor opened inside an editor, or an inner
+document ✅:
+
+```csharp
+static GH_Document FileOf(GH_Document doc)
+{
+    for (int i = 0; doc != null && i < 64; i++)
+    {
+        if (!(doc.Owner is GH_Cluster owner)) return doc;
+        var parent = owner.OnPingDocument();
+        if (parent == null || ReferenceEquals(parent, doc)) return doc;
+        doc = parent;
+    }
+    return doc;
+}
+```
+
+Any "only in this file" scope needs it: editing a nested cluster from inside its
+parent's editor commits in the *editor* document, so treating editors as separate files
+cuts the main document off.
 
 ### Removing a cluster from a document destroys its contents
 
@@ -126,6 +225,49 @@ contents and `DocumentId == Guid.Empty`. To move objects between documents use
 unless given the right password; it never prompts (`RequestPassword` is the method
 that shows a dialog). To read contents regardless of a password, read the private
 `m_internalDocument`.
+
+## Params and persistent data
+
+### `SolutionExpired` is raised on the top-level object only
+
+`GH_DocumentObject.OnSolutionExpired` 📖 raises the event on the object itself only
+while its attributes are top-level; otherwise it forwards to
+`Attributes.GetTopLevel.DocObject.OnSolutionExpired`. So **a component's input or output
+param never raises `SolutionExpired`** ✅ — a listener on `cluster.Params.Input[0]` never
+fires, however often the param expires. Subscribe to the owning component and check
+which param changed.
+
+### Setting persistent data: the undo record comes first
+
+Every way of setting a param's persistent data 📖 — `SetPersistentData` (all
+overloads), Set one / Set multiple, Manage collection, Clear values, the multiline
+editor, Internalise data — records the undo event **first**, then changes
+`PersistentData`, then raises `OnObjectChanged` and expires. So an `UndoStateChanged`
+handler that sees `RecordAdded` for such a record still reads the **old** value. The
+reliable after-change signal is the owning component's next `SolutionExpired`.
+
+For **Undo and Redo** it is the other way round: `GH_PersistentDataAction` restores the
+data before `UndoStateChanged` reports the operation, so a handler can act at once.
+
+**Pattern** ✅ — on `RecordAdded`, arm a one-shot `SolutionExpired` handler on the owning
+component that unsubscribes on its first fire. Keep armed handlers in a dictionary so
+`Detach` can remove any that never fired. On Undo and Redo, act immediately.
+
+Two traps 📖✅:
+
+- **`SetPersistentData(T)` and `SetPersistentData(IEnumerable<T>)` append** to the
+  existing data (as does `params object[]`, which forwards to the list overload). Only
+  `SetPersistentData(GH_Structure<T>)` replaces it.
+- **Clearing `PersistentData` yourself before `SetPersistentData(item)`** puts the clear
+  *before* the undo snapshot, so undo restores the cleared state, not the old value. To
+  replace a value with working undo, build a `GH_Structure<T>` and use that overload.
+
+### Small traps
+
+- **`GH_Document.AddObject` marks the document modified** ✅, so a test cannot assert
+  "not modified" on a fixture it just populated.
+- **`GH_SettingsServer.ConstainsEntry(string)`** is Grasshopper's spelling; there is no
+  `ContainsKey`. `DeleteValue(key)` restores "absent" ✅.
 
 ## Canvas UI
 
@@ -243,6 +385,19 @@ at once, tell them to switch to Rhino, and read the outcome in a later call.
   cluster is linked to a `.gh`, `.ghx` or `.ghcluster` (measured for `.gh` and
   `.ghcluster`; an unlinked cluster writes nothing) — only drive it on a cluster you
   created.
+- **`cluster.DocumentModified(editedDoc)`** commits without opening the editor ✅, where
+  `editedDoc = GH_Document.DuplicateDocument(<m_internalDocument>)`, then edited. It
+  rebuilds the family in the owning document and pushes `"Cluster Change"`
+  (`UndoStateChanged`: `ClearRedoStack`, then `RecordAdded`). It is what Save & Close
+  calls, minus the editor, and needs no canvas; the file-rewrite caveat above applies.
+- **A right-click without a mouse** ✅: call
+  `attrs.RespondToMouseUp(canvas, new GH_CanvasMouseEvent(controlPoint, canvasPoint, MouseButtons.Right, 1, 0))`
+  at the centre of the object's own `Bounds` — that constructor needs no viewport. Run
+  `ExpireLayout()` and `PerformLayout()` first or `Bounds` may be stale. With a menu
+  interceptor ([above](#menus-and-dialogs-block-the-call-that-opens-them)) it returns
+  the built `ToolStripDropDown`, and `item.PerformClick()` runs the real handler. Set
+  `canvas.Document` to the object's document for the duration (handlers check
+  `sender.IsDocument`) and restore it after.
 - **`MenuDiscardClusterReturnToParentClicked`** is **Discard & Close**, and it asks
   first: `GH_DocumentIO.SubsidiaryDocumentSavePrompt` shows "Do you want to save the
   changes?" (No / Yes / Cancel), which blocks the call [as above](#menus-and-dialogs-block-the-call-that-opens-them).
@@ -285,9 +440,19 @@ Limits ✅:
   `ComponentServer.Libraries`, and a `GH_Component` inside it gets no proxy
   (`EmitObjectProxy(guid)` is null). So it suits canvas tools and priority-load
   behaviour, **not component libraries**.
-- **The load context is not collectible** (`IsCollectible == false`): every loaded
-  build stays in the process until Rhino quits. Whatever it did not undo in
-  `Detach` stays in effect too.
+- **`new AssemblyLoadContext(name)` is not collectible**: every build loaded that way
+  stays in the process until Rhino quits. Pass `isCollectible: true` instead and
+  `Unload()` it after `Detach()` ✅: the context then disappears from
+  `AssemblyLoadContext.All`. That is proven only for builds that detach everything
+  they attached. Handlers or attributes left on live objects keep the context alive,
+  and whether unloading is then safe or merely leaks is untested.
+- Whatever a build did not undo in `Detach` stays in effect.
+
+**A smoke run of the Release build** ✅ follows the same shape: detach the installed
+copy, load the build into a collectible context, `Attach`, drive scratch documents,
+then `Detach`, restore any settings, `Unload`, and re-attach the installed copy. A test
+suite built as its own assembly is the next step up — see
+[testing-in-grasshopper.md](testing-in-grasshopper.md).
 
 ## Reading Grasshopper's source
 
@@ -309,5 +474,7 @@ shim is the answer to "how does this actually behave on a Mac".
 ## Related
 
 - [dotnet-build.md](dotnet-build.md) — building the `.gha` in the first place.
+- [testing-in-grasshopper.md](testing-in-grasshopper.md) — a test suite that exercises
+  all of this from a separately built assembly.
 - [../write-scripts/rhino-mcp-platform.md](../write-scripts/rhino-mcp-platform.md) —
   the `run_csharp` payload constraints every live test here runs under.

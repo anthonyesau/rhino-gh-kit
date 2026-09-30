@@ -127,7 +127,9 @@ The one exception is a test load: a **canvas tool** (no components) can be loade
 beside the installed copy into a fresh `AssemblyLoadContext` and driven through its
 own `Attach` / `Detach` — see
 `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/gh-internals.md`. A component library
-cannot; its types were registered at startup.
+cannot; its types were registered at startup. A canvas tool's own test suite runs the
+same way, as a separately built assembly —
+`${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/testing-in-grasshopper.md`.
 
 **Verify by reflecting on something the new build changed, never by the `.gha`'s
 timestamp** — a stale binary reporting a newer file on disk is the classic
@@ -163,4 +165,5 @@ Two rules that are easy to break and expensive to unpick:
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/publishing.md` — versioning, tags, why the release step is its own script
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/dotnet-build.md` — the pipeline in full, and the new-project checklist
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/file-naming.md` — the gate `publish.sh` runs first
-- `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/gh-internals.md` — clusters, canvas menus, swapped attributes, test-loading a build, decompiling Grasshopper
+- `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/gh-internals.md` — clusters, params and persistent data, canvas menus, swapped attributes, test-loading a build, decompiling Grasshopper
+- `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/testing-in-grasshopper.md` — a canvas tool's test suite, built with `dotnet build` and run inside Grasshopper
