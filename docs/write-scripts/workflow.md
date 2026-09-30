@@ -38,8 +38,9 @@ reflection fallback in the kit any more. Script Forge is a compiled plugin
 installed separately; if it is missing, say so and stop.
 
 `set-param-value` covers the other half — writing a value into any param or input
-object (`${CLAUDE_PLUGIN_ROOT}/tooling/set-param-value.cs`). The Platform's own
-tools can place a slider and nothing else.
+object (`${CLAUDE_PLUGIN_ROOT}/tooling/set-param-value.cs`, or `set-param-value-special.cs`
+for Rhino references). The Platform's own tools can place a new slider and nothing
+else.
 
 ## Writing a `run_csharp` payload
 

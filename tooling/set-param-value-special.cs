@@ -1,117 +1,121 @@
-// set-param-value.cs — write everyday values into Grasshopper inputs: panels,
-// sliders, toggles, buttons, value lists, colour swatches, and any param or
-// component input that holds numbers, text, booleans or GUIDs (kind "auto").
+// set-param-value-special.cs — the kinds set-param-value.cs does not handle:
+// Rhino-model references ("ref", "arc", "circle", "line", "rect"), named views
+// ("view"), saved state ("state") and raw serialized data ("chunk").
 // A payload for mcp__rhino__run_csharp; edit only the `edits` array.
-// Rhino-model references and the rare kinds are set-param-value-special.cs.
 // How to use both: skills/set-param-value/SKILL.md.
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
+using GH_IO.Serialization;
 using Grasshopper;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Special;
 using Grasshopper.Kernel.Types;
+using Rhino.Geometry;
 
 // --- EDIT THIS ---
 var edits = new (string Id, string Kind, object[] Values)[]
 {
-  ("00000000-0000-0000-0000-000000000000", "auto", new object[] { "replace me" }),
+  ("00000000-0000-0000-0000-000000000000", "ref", new object[] { "<rhino object guid>" }),
 };
 // ---
 
-var kinds = new[] { "auto" };
-var otherScript = "set-param-value-special.cs";
+var kinds = new[] { "ref", "arc", "circle", "line", "rect", "view", "state", "chunk" };
+var otherScript = "set-param-value.cs";
+var rdoc = __rhino_doc__;
 
-Func<object, decimal> toDec = o => o is decimal m ? m : Convert.ToDecimal(o, CultureInfo.InvariantCulture);
-Func<object, bool> toBool = o => o is bool b ? b : bool.Parse(Convert.ToString(o));
+// Param_Geometry's element type is the abstract IGH_GeometricGoo: walk the Rhino
+// geometry's inheritance until Grasshopper.Kernel.Types.GH_<Name> resolves.
+Func<GeometryBase, Type> concreteGoo = geom =>
+{
+  var asm = typeof(GH_Curve).Assembly;
+  for (var t = geom.GetType(); t != null && t != typeof(object); t = t.BaseType)
+  {
+    var gt = asm.GetType("Grasshopper.Kernel.Types.GH_" + t.Name);
+    if (gt != null) return gt;
+  }
+  return null;
+};
 
-// One goo per raw value: pick a concrete goo, then let CastFrom convert. Never
-// Activator.CreateInstance(gooType, value) — GH_Boolean's bool ctor misbinds and
-// silently yields Value=False.
+// One goo per raw value: a named view, or a reference to a Rhino object.
 Func<Type, object, string, IGH_Goo> buildGoo = (itemType, raw, kind) =>
 {
-  var target = itemType;
-  if (target == null || target.IsAbstract || target.IsInterface)
+  if (kind == "view")
   {
-    if (raw is bool) target = typeof(GH_Boolean);
-    else if (raw is int || raw is long) target = typeof(GH_Integer);
-    else if (raw is double || raw is float || raw is decimal) target = typeof(GH_Number);
-    else if (raw is Guid) target = typeof(GH_Guid);
-    else target = typeof(GH_String);
+    var name = Convert.ToString(raw);
+    Rhino.DocObjects.ViewInfo vi = null;
+    for (int i = 0; i < rdoc.NamedViews.Count; i++)
+      if (rdoc.NamedViews[i].Name == name) { vi = rdoc.NamedViews[i]; break; }
+    if (vi == null) { Console.WriteLine("    named view '" + name + "' not found"); return null; }
+    var vt = typeof(GH_Curve).Assembly.GetType("Grasshopper.Rhinoceros.Display.ModelView");
+    if (vt == null) { Console.WriteLine("    ModelView type unavailable"); return null; }
+    return (IGH_Goo) vt.GetConstructor(new[] { typeof(Rhino.DocObjects.ViewInfo) }).Invoke(new object[] { vi });
   }
-  var g = Activator.CreateInstance(target) as IGH_Goo;
-  if (g == null) { Console.WriteLine("    cannot construct " + target.Name); return null; }
-  if (g.CastFrom(raw)) return g;
-  // CastFrom refuses some string→T conversions that the goo's own ctor takes.
-  var sc = target.GetConstructor(new[] { typeof(string) });
-  if (sc != null) return (IGH_Goo) sc.Invoke(new object[] { Convert.ToString(raw) });
-  Console.WriteLine("    " + target.Name + ".CastFrom refused " + (raw == null ? "null" : raw.GetType().Name));
-  return null;
+
+  if (!Guid.TryParse(Convert.ToString(raw), out var oid)) { Console.WriteLine("    not a GUID: " + raw); return null; }
+  var rhObj = rdoc.Objects.FindId(oid);
+  if (rhObj == null) { Console.WriteLine("    object " + oid + " not in the Rhino document"); return null; }
+  var gooType = itemType;
+  if (gooType == null || gooType.IsAbstract || gooType.IsInterface)
+  {
+    gooType = concreteGoo(rhObj.Geometry);
+    if (gooType == null) { Console.WriteLine("    no concrete goo for " + rhObj.Geometry.GetType().Name); return null; }
+  }
+  var goo = (IGH_Goo) Activator.CreateInstance(gooType);
+  gooType.GetProperty("ReferenceID")?.SetValue(goo, oid);
+  gooType.GetMethod("LoadGeometry", new[] { typeof(Rhino.RhinoDoc) })?.Invoke(goo, new object[] { rdoc });
+  if (kind == "ref") return goo;
+
+  // LoadGeometry does not turn an ArcCurve/LineCurve/PolylineCurve into an
+  // Arc/Circle/Line/Rectangle3d, so those four kinds set Value by hand. Only they
+  // touch Value: on some annotation goos a bare GetProperty("Value") is ambiguous.
+  var vp = gooType.GetProperty("Value");
+  var geom = rhObj.Geometry;
+  if (kind == "arc" && geom is ArcCurve ac) vp.SetValue(goo, ac.Arc);
+  else if (kind == "circle" && geom is ArcCurve ac2 && ac2.Arc.IsCircle) vp.SetValue(goo, new Circle(ac2.Arc.Plane, ac2.Radius));
+  else if (kind == "line" && geom is LineCurve lc) vp.SetValue(goo, lc.Line);
+  else if (kind == "rect" && geom is Curve crv && crv.TryGetPolyline(out var poly) && poly.Count >= 4)
+  {
+    Point3d p0 = poly[0], p1 = poly[1], p3 = poly[poly.Count - 2];
+    vp.SetValue(goo, new Rectangle3d(new Plane(p0, p1 - p0, p3 - p0), p1, p3));
+  }
+  else Console.WriteLine("    kind '" + kind + "' does not match geometry " + geom.GetType().Name + "; Value left unset");
+  return goo;
 };
 
-// Objects that are not plain params, or need more than persistent data. Returns
-// null to hand the object on to the shared param path below.
+// "state" and "chunk" bypass goo building. Returns null to hand the object on
+// to the shared param path below.
 Func<IGH_DocumentObject, string, object[], bool?> setObject = (obj, kind, values) =>
 {
-  if (obj is GH_NumberSlider slider)
+  if (kind == "state")
   {
-    var was = slider.Slider.Value;
-    slider.Slider.Value = toDec(values.FirstOrDefault());
-    Console.WriteLine("    " + was + " -> " + slider.Slider.Value);
+    // IGH_StateAwareObject (Gene Pool, …): one value, the LoadState string.
+    var ls = obj.GetType().GetMethod("LoadState", new[] { typeof(string) });
+    if (ls == null) { Console.WriteLine("    no LoadState(string) on " + obj.GetType().Name); return false; }
+    ls.Invoke(obj, new object[] { Convert.ToString(values.FirstOrDefault()) ?? string.Empty });
+    Console.WriteLine("    loaded state");
     return true;
   }
-  if (obj is GH_BooleanToggle toggle)
+  if (kind == "chunk")
   {
-    toggle.Value = toBool(values.FirstOrDefault());
-    Console.WriteLine("    " + toggle.Value);
-    return true;
-  }
-  if (obj is GH_ButtonObject button)
-  {
-    // No persistent data: ButtonDown is its only state. `true` holds the button
-    // down until a second call sends `false`.
-    button.ButtonDown = toBool(values.FirstOrDefault());
-    Console.WriteLine("    ButtonDown=" + button.ButtonDown + (button.ButtonDown ? " (held — send false in a second call to release)" : " (released)"));
-    return true;
-  }
-  if (obj is GH_Panel panel)
-  {
-    // Multiline OFF splits the text into one item per line.
-    panel.UserText = string.Join("\n", values.Select(v => Convert.ToString(v) ?? string.Empty));
-    panel.Properties.Multiline = values.Length <= 1;
-    Console.WriteLine("    " + values.Length + " line(s), multiline=" + panel.Properties.Multiline);
-    return true;
-  }
-  if (obj is GH_ValueList vlist)
-  {
-    // Values are item names (case-insensitive) or 0-based indices.
-    var want = new HashSet<int>();
-    foreach (var v in values)
-    {
-      var s = Convert.ToString(v);
-      int idx = vlist.ListItems.FindIndex(li => string.Equals(li.Name, s, StringComparison.OrdinalIgnoreCase));
-      if (idx < 0) int.TryParse(s, out idx);
-      if (idx >= 0 && idx < vlist.ListItems.Count) want.Add(idx);
-      else Console.WriteLine("    no item '" + s + "' (have: " + string.Join(", ", vlist.ListItems.Select(li => li.Name)) + ")");
-    }
-    if (want.Count == 0) { Console.WriteLine("    nothing selected — left unchanged"); return false; }
-    for (int i = 0; i < vlist.ListItems.Count; i++) vlist.ListItems[i].Selected = want.Contains(i);
-    Console.WriteLine("    selected [" + string.Join(",", want.OrderBy(n => n)) + "] of " + vlist.ListItems.Count);
-    return true;
-  }
-  if (obj is GH_ColourSwatch swatch)
-  {
-    swatch.SwatchColour = System.Drawing.ColorTranslator.FromHtml(Convert.ToString(values.FirstOrDefault()));
-    Console.WriteLine("    " + swatch.SwatchColour);
+    // One value: a base64 GH_LooseChunk read straight into PersistentData.
+    var pd = obj.GetType().GetProperty("PersistentData")?.GetValue(obj);
+    var read = pd?.GetType().GetMethod("Read", new[] { typeof(GH_IReader) });
+    if (read == null) { Console.WriteLine("    no PersistentData.Read on " + obj.GetType().Name); return false; }
+    pd.GetType().GetMethod("Clear", Type.EmptyTypes)?.Invoke(pd, null);
+    var b64 = Convert.ToString(values.FirstOrDefault());
+    if (string.IsNullOrEmpty(b64)) { Console.WriteLine("    cleared (empty chunk)"); return true; }
+    var chunk = new GH_LooseChunk("data");
+    chunk.Deserialize_Binary(Convert.FromBase64String(b64));
+    read.Invoke(pd, new object[] { chunk });
+    Console.WriteLine("    read chunk (" + b64.Length + " b64 chars)");
     return true;
   }
   return null;
 };
 
-// --- SHARED with set-param-value-special.cs — keep byte-identical ---
+// --- SHARED with set-param-value.cs — keep byte-identical ---
 var ghdoc = Instances.ActiveCanvas?.Document ?? (Instances.DocumentServer.DocumentCount > 0 ? Instances.DocumentServer[0] : null);
 if (ghdoc == null) { Console.WriteLine("ERROR: no active Grasshopper document"); return; }
 

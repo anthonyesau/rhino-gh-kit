@@ -2,8 +2,8 @@
 
 Dev infrastructure for the metadata-header workflow — parsing the canonical
 `.cs` sources and turning them into a shipped plugin. Most of it is build-time
-only. The exception is `set-param-value.cs`, which the skills invoke at run
-time.
+only. The exceptions are the `set-param-value` payloads, which the skills invoke
+at run time.
 
 ## Files
 
@@ -11,7 +11,9 @@ time.
 |---------------------|------------------------------------------------------------------------------|
 | `gh_meta.py`        | This kit's parser for the `@component` metadata header — a Python port of Script Forge's own parser, kept in sync by hand. The grammar itself is specified once, in [`docs/write-scripts/header-reference.md`](../docs/write-scripts/header-reference.md), whose appendix covers this tooling's own bits (`gh-meta: ignore`, `--check` semantics). |
 | `publish.sh`        | The release pipeline for a **compiled** plugin, shared by every project that builds a `.gha`: validate → generate → build → package → install → push, cumulative. Projects keep a 3-line wrapper and a `tooling/publish.conf`; see below. |
-| `set-param-value.cs` | Payload (run via `mcp__rhino__run_csharp`, **not** a GH script component) that writes a value into any param or input object — panels, value lists, toggles, component inputs, Rhino geometry references. The Platform can set a slider and nothing else; this covers the rest, and is how `forge-push` feeds Script Forge its inputs. |
+| `set-param-value.cs` | Payload (run via `mcp__rhino__run_csharp`, **not** a GH script component) that writes everyday values into any param or input object — panels, sliders, value lists, toggles, buttons, swatches, component inputs by name. The Platform can place a new slider and nothing else; this covers the rest, and is how `forge-push` feeds Script Forge its inputs. |
+| `set-param-value-special.cs` | Its companion for the rare kinds: Rhino geometry references, named views, saved state, raw serialized data. The skill [`set-param-value`](../skills/set-param-value/SKILL.md) says which to send. |
+| `check_set_param_sync.py` | Fails when the two payloads' shared sections differ. Each is pasted whole into `run_csharp`, which cannot include one file from another, so the code both need is copied between `// --- SHARED` markers; CI runs this. |
 | `build-forge-rig.cs` | Payload (run via `mcp__rhino__run_csharp`, **not** a GH script component) that builds a forge rig on the active canvas: Source panel, Target value list, the compiled Script Forge, a Run button, and a group, wired and laid out. Scratch canvases are not tracked, so this file *is* the rig — run it rather than hunting for a saved `.gh`. Driving one is [`forge-push`](../skills/forge-push/SKILL.md); testing a change to Script Forge itself is [`../script-forge/docs/forge-under-test.md`](../script-forge/docs/forge-under-test.md). |
 | `release.sh`        | Cuts a GitHub Release with the `.yak` attached, for any project `publish.sh` builds. Reads the version from the manifest and derives the tag from it, so the tag, the commit and the asset cannot name different builds; refuses a dirty tree, an unpushed HEAD, a tag already pointing elsewhere, an existing release, or a built asset whose filename does not carry the version. `--dry-run` runs every check and the build, and writes nothing. Every git operation targets the repository containing `--repo`, not the kit, so a project that consumes the kit from elsewhere tags itself. Deliberately separate from `publish.sh`, whose stages are a straight line — a release step inside it would be inherited by `install` or by `push`. |
 | `check_filenames.py` | The filename gate `publish.sh` runs before the header check. Two passes: the POSIX-portable character set over every `git ls-files` path, then `kebab(header "name") == stem` over `gh_meta.all_sources()` — the same scope `--all --check` walks, reused so the two cannot drift. Deliberately **not** folded into `gh_meta.check_meta`: that module is a hand-synced port of Script Forge's parser, and the forge has no opinion about filenames. See [../docs/ship-a-plugin/file-naming.md](../docs/ship-a-plugin/file-naming.md). |
@@ -21,7 +23,7 @@ time.
 
 Everything in this table is shared kit infrastructure. Most of it is reused by any
 project that builds a `.gha` (this kit's own `script-forge/` included, plus other
-projects built on this pipeline); `set-param-value.cs` and
+projects built on this pipeline); the `set-param-value` payloads and
 `build-forge-rig.cs` are reused instead by any project that *drives* the forge,
 which is every project the kit is installed in. Script Forge's own
 project-specific tooling — not generic, and not usable by another

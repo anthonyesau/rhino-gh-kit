@@ -32,6 +32,9 @@ jobs:
       - name: Fixture parity — gh_meta.py vs. Script Forge's own parser
         run: python3 script-forge/tooling/test_fixtures.py
 
+      - name: set-param-value payloads — shared section identical
+        run: python3 tooling/check_set_param_sync.py
+
       - name: Shell syntax
         run: bash -n hooks/gh-workflow-guard.sh tooling/*.sh tooling/hooks/pre-commit
 
