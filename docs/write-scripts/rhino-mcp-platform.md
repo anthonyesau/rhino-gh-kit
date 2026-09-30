@@ -68,6 +68,13 @@ to the router, so it does not count: one session had the user's blank Rhino open
 a bare `get_context`, and got a freshly spawned second Rhino instead. No setting to
 disable auto-spawn was found in the router's flags or strings.
 
+The router finds user-started Rhinos through files 📖: each listener writes
+`<pid>-<port>.json` into `~/Library/Application Support/McNeel/Rhinoceros/ai/listeners/`,
+rewrites it every 15 s, and writes a `.gone` file when it stops. **Load MCP server at
+startup** in the Platform's settings panel (`AutoLoadMCP`, off by default) starts a
+listener on every new or opened document, provided at least one agent is enabled in
+the same panel. `MCPStart` is then unnecessary. Not tried live.
+
 **So call `list_slots` first**, before any other Rhino tool in a session — it never
 spawns. An empty list means the user's Rhino is not listening: ask them to run
 **`MCPStart`** in it (and confirm which Rhino they want used) rather than letting a bare
@@ -77,8 +84,15 @@ The same session saw a router-spawned slot come back as a **fresh Rhino under th
 name** after the MCP servers disconnected and reconnected — Grasshopper closed, plugins
 unloaded. Not reproduced; treat state in a router-spawned Rhino as disposable.
 
-**The port is whatever the slot reports.** 10500 on 0.3.0 (both sessions measured), 10501
-on 0.2.1. `list_slots` gives it; confirm with:
+**The port is whatever the slot reports, and it moves.** 📖 `RhinoAIHost.TryGetNextPort`
+in 0.3.0's `RhinoAI.rhp` offers **10500** when this Rhino runs no server yet, and **one
+above its own highest port** when it already runs one. A Rhino runs one server per
+document, and on macOS each open window is its own document. If that candidate is
+already taken, for example by another Rhino, the OS picks a **random free port**. It
+does not try the next number up. A document reopened in the same window tries the port
+its predecessor freed first, and prints *"Port N was unavailable; MCP server moved to …"*
+when it can't have it. `AISettings.StartingPort` exists but nothing reads it. So never
+hard-code a port: `list_slots` gives it, and you can confirm with:
 
 ```bash
 lsof -nP -iTCP:<port> -sTCP:LISTEN
