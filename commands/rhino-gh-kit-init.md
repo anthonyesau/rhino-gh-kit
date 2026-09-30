@@ -100,8 +100,10 @@ echo "dev clone: ${KIT:-<none — fall back to \$CLAUDE_PLUGIN_ROOT>}"
      isn't one.
    - **The Platform.** The session should expose `mcp__rhino__run_csharp` and
      `mcp__rhino__g1_place_component`. If it exposes some other tool set, the config is
-     pointing at a different server. If the tools are there but calls fail with *"Could
-     not connect to Rhino"*, the user needs to run **`MCPStart`** — see
+     pointing at a different server. If the tools are there, call `mcp__rhino__list_slots`
+     (it never starts a Rhino): an empty list means the user needs to run **`MCPStart`**
+     in their Rhino, and no other Rhino tool should be called until they have — without
+     a `slot`, one auto-spawns a second Rhino. See
      `${CLAUDE_PLUGIN_ROOT}/docs/write-scripts/rhino-mcp-platform.md`.
 
    Record in the project's `CLAUDE.md` that `forge-push` is the only authoring path, and

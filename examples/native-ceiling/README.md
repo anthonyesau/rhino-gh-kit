@@ -46,9 +46,10 @@ foreach (var o in Grasshopper.Instances.ActiveCanvas.Document.Objects
   Console.WriteLine(o.GetType().Name + " '" + o.Name + "' " + o.InstanceGuid);
 ```
 
-Reaching the canvas at all needs `MCPStart` run in Rhino first; until then every
-`mcp__rhino__*` call fails with *"Could not connect to Rhino"*. That is the normal first
-failure of a session and the fix is one command from the user.
+Reaching the canvas at all needs `MCPStart` run in Rhino first. Call
+`mcp__rhino__list_slots` before anything else: if it lists no Rhino, ask the user to run
+`MCPStart`, because any other `mcp__rhino__*` call without a `slot` auto-spawns a second
+Rhino instead of failing.
 
 **The one constraint that governs how you can test anything here.** Building params *from*
 a signature happens on an **editor save** — a human pasting and closing the ScriptEditor.

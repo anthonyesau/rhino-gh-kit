@@ -12,16 +12,19 @@ McNeel's first-party server, installed per machine and registered under the user
 own config as `rhino`. The kit bundles **no** `.mcp.json`, so the tools are
 literally `mcp__rhino__*` — no plugin namespacing to resolve.
 
-The five tools the kit uses: **`run_csharp`** (arbitrary C# against the live
-document), **`g1_get_canvas_graph`**, **`g1_place_component`**,
-**`g1_solve_graph`**, **`g1_search_components`**.
+The six tools the kit uses: **`list_slots`** (which Rhinos are reachable),
+**`run_csharp`** (arbitrary C# against the live document),
+**`g1_get_canvas_graph`**, **`g1_place_component`**, **`g1_solve_graph`**,
+**`g1_search_components`**.
 
-**The tools existing does not mean Rhino is reachable.** The listener only starts
-when the user runs **`MCPStart`** in Rhino; until then every call fails with
-*"Could not connect to Rhino"*. That is the normal first failure of a session, and
-the fix is one command from the user — ask for it rather than working around it.
-The port is **whatever `MCPStart` prints** (10501 here, not the 10500 you may see
-written down); confirm with `lsof -nP -iTCP:<port> -sTCP:LISTEN`.
+**The tools existing does not mean Rhino is reachable — and a bare call can start a
+second Rhino.** Call **`list_slots`** first; it never spawns. Each slot is one Rhino
+(`adopted: true` = the user's own). **An empty list means the user's Rhino is not
+listening**: ask them to run **`MCPStart`** in it rather than making another call, because
+any Rhino tool called without a `slot` then **auto-spawns a fresh Rhino** and works in that
+instead. With more than one slot, pass `slot` explicitly. The port is whatever the slot
+reports (10500 on Platform 0.3.0). Details:
+`${CLAUDE_PLUGIN_ROOT}/docs/write-scripts/rhino-mcp-platform.md` § Slots.
 
 If a task needs these tools and they are absent from the session, stop and ask the
 user to start the server. Do not improvise a workaround.
@@ -54,11 +57,16 @@ tools can place a slider and nothing else.
   A `ScheduleSolution` callback fires *after* the call returns, so nothing it
   computes can be printed — read post-solve state in a second call.
 - **Never print the substrings `error CS`, `Compile Error` or `Exception:`.** The
-  server sniffs stdout for them and, on a match, moves the **entire** stdout into
-  the `error` field and returns stdout **empty** — a successful run reported as a
-  failure with its output gone. Verified 2026-08-13. This is a live hazard when
-  echoing a Script Forge `Log` or any compiler diagnostics: filter or mangle those
-  substrings before printing them.
+  server sniffs stdout for them and, on a match, reports the run as failed with its
+  output in `message` — **starting at the first matching line; everything before it is
+  dropped**. A successful run reported as a failure with the head of its output gone.
+  This is a live hazard when echoing a Script Forge `Log`, compiler diagnostics or a
+  stack trace: filter or mangle those substrings before printing them.
+- **An empty result (`{"payload":"\n"}`) means it did not compile.** More than ~2000
+  characters of compile errors come back as nothing at all. Cut the payload down or fix
+  the first error, and retry.
+- **Only the last `#r` directive takes effect.** Two unreferenced assemblies can't both
+  be added that way.
 - **`set_Text` is not an editor save — never generalise from one to the other.** A
   reflection push (`IScriptComponent.set_Text`, which is what Script Forge and any
   `run_csharp` payload use) moves the source text and nothing else: the params do not

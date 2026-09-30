@@ -86,9 +86,10 @@ below):
   Manager and registered under your own Claude Code config as `rhino` — the
   kit bundles no `.mcp.json` of its own. See
   [docs/write-scripts/rhino-mcp-platform.md](docs/write-scripts/rhino-mcp-platform.md).
-- **`MCPStart`**, run once per Rhino session. Until then every MCP tool call
-  fails with *"Could not connect to Rhino"* — that's the normal first failure
-  of a session, not a bug.
+- **`MCPStart`**, run once per Rhino session. Until then the router cannot see
+  your Rhino, and a Rhino tool call without a `slot` **starts a second Rhino** of
+  its own rather than failing. The kit's agents call `list_slots` first to catch
+  this.
 - **`jq`**, on the `PATH` of whatever runs Claude Code — the `gh-workflow-guard.sh`
   hook needs it to inspect a prompt. A missing `jq` just skips that hook's context
   injection; nothing else in the kit depends on it.
@@ -324,12 +325,13 @@ project-level `rhino` entry would silently hide the machine's Platform registrat
 Two things must be true before a live canvas can be driven, and neither is implied by the
 tools appearing in the session:
 
-- **`MCPStart` has been run in Rhino.** Until then every call fails with *"Could not
-  connect to Rhino"*. That is the normal first failure of a session.
+- **`MCPStart` has been run in Rhino.** Until then `list_slots` does not list the
+  user's Rhino, and any other Rhino tool called without a `slot` auto-spawns a second
+  one. Call `list_slots` first in every session.
 - **Script Forge is installed** — a separately built Grasshopper plugin, required by
   `forge-push`. There is no reflection fallback for pushing source.
 
 If either is missing, **stop and ask the user** — don't work around it. Install, connect,
-the five tools the kit uses, and the six `run_csharp` payload constraints are in
+slots, the six tools the kit uses, and the eight `run_csharp` payload constraints are in
 [docs/write-scripts/rhino-mcp-platform.md](docs/write-scripts/rhino-mcp-platform.md);
 [docs/use-the-forge/script-forge.md](docs/use-the-forge/script-forge.md) covers the forge.

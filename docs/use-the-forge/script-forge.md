@@ -113,9 +113,9 @@ splits its text into one item per line, which is the shape the forge wants; mult
 emits a single blob.
 
 **Don't echo the `Log` straight to stdout from a `run_csharp` payload.** It can contain
-compiler diagnostics, and the Platform moves the entire stdout into its `error` field —
-returning stdout *empty* — when it spots `error CS`, `Compile Error` or `Exception:` in
-the text. Filter or mangle those substrings first. See
+compiler diagnostics, and when the Platform spots `error CS`, `Compile Error` or
+`Exception:` in stdout it reports the run as failed and drops every line before the
+first match. Filter or mangle those substrings first. See
 [rhino-mcp-platform.md](../write-scripts/rhino-mcp-platform.md).
 
 ## What it cannot do
