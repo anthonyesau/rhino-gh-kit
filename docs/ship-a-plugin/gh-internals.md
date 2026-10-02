@@ -332,6 +332,22 @@ it on all three of these ✅:
 - `GH_Canvas.DocumentChanged` — fires as the canvas switches to and from a cluster
   editor; a backstop for the other two.
 
+### Menu item tooltips never show on macOS
+
+✅ On Rhino 8 for Mac, hovering over a Grasshopper menu item shows nothing, even when
+`ToolStripItem.ToolTipText` is set and reads back from the item. This happens on
+items added to the editor's main menu, on items added to an object's right-click
+menu (`GH_CanvasMenuStrip`), and on Grasshopper's own items. Both menus are native
+`NSMenu`s on macOS, and the tooltip does not reach them. Whether the same tooltips
+show on Windows has not been checked.
+
+- **Put nothing a user needs into a tooltip.** A Mac user never sees it.
+- **Put anything essential in the item's text.** A count goes in the name ("Refresh 3
+  Labels"), not in the tooltip.
+- **Name each item so it makes sense with no explanation.** For a Mac user, the only
+  other place to find out what it does is the plugin's own docs.
+- Setting the tooltip anyway costs nothing, and it may give Windows users extra detail.
+
 ### Menus and dialogs block the call that opens them
 
 ✅ Rhino's macOS WinForms shim implements `ToolStripDropDown.Show` as a native
