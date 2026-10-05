@@ -226,6 +226,129 @@ unless given the right password; it never prompts (`RequestPassword` is the meth
 that shows a dialog). To read contents regardless of a password, read the private
 `m_internalDocument`.
 
+### Copies of a stale cluster are stale too
+
+`GH_Cluster` is an `IGH_VariableParameterComponent`, so `Read` 📖 restores its params as
+saved, and `UpdateDocument` then reuses them through `m_mapping`. A cluster whose
+param names were [stale](#renaming-a-hook-never-reaches-the-clusters-params) when it
+was copied, saved or made into a User Object arrives with the same stale names ✅ —
+measured for a paste and a User Object. Fix them on arrival, in an
+[`ObjectsAdded` handler](#objectsadded-fires-before-the-undo-record-and-the-solve).
+
+**Making a cluster User Object from code** ✅: `GH_UserObject.SetDataFromObject(cluster)`
+leaves `BaseGuid` empty. Set `uo.BaseGuid = GH_Cluster.ClusterComponentId` yourself,
+then check `Instances.ComponentServer.EmitObject(uo.BaseGuid) != null` before calling
+`InstantiateObject()`. With no base type it fails through `Tracing.Assert`, which
+opens a [modal dialog](#menus-and-dialogs-block-the-call-that-opens-them) 📖.
+
+## Referenced clusters
+
+A cluster can reference a `.ghcluster`, `.gh` or `.ghx` file (`FilePath` is set). Its
+right-click menu then offers Update when the file has changed, and committing an edit
+rewrites the file ([below](#grasshoppers-own-ui-handlers-can-be-driven-from-code)).
+
+### Importing a `.ghcluster` drops its name, description and icon
+
+✅ Drag a `.ghcluster` onto the canvas, or use File ▸ Insert Cluster Into File…, and
+the new cluster is called "Cluster", with the default description and icon, whatever
+the file was exported as.
+
+Both paths call `new GH_Cluster().CreateFromFilePath(path)` 📖, and its
+`ReadGhClusterFile` reads the file into a temporary cluster and copies across only the
+author, the password and the inner document. The identity is still in the file: a
+`.ghcluster` is a `GH_LooseChunk("Cluster")` written by `GH_Cluster.Write`, with `Name`,
+`NickName`, `Description` and the `IconOverride` bitmap at its root ✅. **Fix** ✅:
+
+```csharp
+var root = new GH_LooseChunk("Cluster");
+root.Deserialize_Binary(File.ReadAllBytes(cluster.FilePath));
+string name = null, nick = null, desc = null;
+if (root.TryGetString("Name", ref name)) cluster.Name = name;
+if (root.TryGetString("NickName", ref nick)) cluster.NickName = nick;
+if (root.TryGetString("Description", ref desc)) cluster.Description = desc;
+if (root.ItemExists("IconOverride")) cluster.SetIconOverride(root.GetDrawingBitmap("IconOverride"));
+```
+
+The import is referenced (`FilePath` set, `UpToDate`), and it **keeps the file's inner
+`DocumentId`** ✅. So every import of one file is in one entangled family, and so is the
+cluster the file was exported from, if it is in the same document.
+
+Grasshopper does not load `.ghcluster` files as toolbar items:
+`GH_ComponentServer.LoadGHCLUSTER` returns `false` 📖.
+
+### File state lives in the internal `GH_ClusterFile`
+
+`GH_Cluster.FilePath` and `Synchronisation` are read from the private field `m_file`,
+an internal `GH_ClusterFile` 📖 with `Path`, `Hash` (a `Guid` hash of the file),
+`Synchronization` and `UpdateToCurrentFile()`. Setting `Path` resets the hash to
+`Guid.Empty` and the state to `Unset`. The getter computes the state once, caches it
+in the private `m_sync` and recomputes only while that is `Unset`. A `GH_FileWatcher`
+sets `m_sync = OutOfDate` when the file's hash changes.
+
+- **Copying contents into another copy that references the same file leaves its old
+  hash** ✅. After `UpdateDocument`, the copy still reads `OutOfDate`, a false badge,
+  until `UpdateToCurrentFile()` is called on its `m_file`.
+- **A commit records before it writes** ✅. `DocumentModified` pushes
+  `"Cluster Change"` and only then writes the file and calls `UpdateToCurrentFile()`
+  on the family. A `RecordAdded` handler still sees the old file, so defer any hash
+  work, for example to `RhinoApp.Idle`.
+- **Watcher callbacks wait for the UI thread** 📖: `GH_FileWatcher` marshals them
+  through `Control.Invoke` on the editor. A `run_csharp` payload holds that thread, so
+  a file change is never seen inside the call that made it ✅. That holds even after
+  two seconds of `Application.DoEvents()`; the change shows from the next call on. A
+  copy whose state was never read computes it fresh. A test that needs `OutOfDate`
+  inside one call has to set `m_sync` itself.
+
+### Update leaves the param names stale
+
+✅ Right-click ▸ Update on an out-of-date cluster (`MenuUpdateReferenceClicked`) calls
+`CreateFromFilePath` on every member of the family. That runs `UpdateDocument`, which
+[reuses params](#renaming-a-hook-never-reaches-the-clusters-params), so a hook
+renamed in the file is renamed inside every copy but not on the component. It records
+**`"Update Cluster"`**, with one `GH_GenericObjectAction` per member, so handle it
+like [`"Cluster Change"`](#a-cluster-commit-raises-no-event-of-its-own). Like a
+commit, it reaches only the [top level of one document](#entanglement-reaches-only-one-documents-top-level):
+a referenced copy nested in another cluster keeps the old contents and stays
+`OutOfDate` ✅.
+
+On a cluster whose file is missing, Update opens a file dialog instead, re-targets the
+family, and records **`"Reference Cluster"`** with the same kind of actions 📖.
+
+**Update throws if any copy in the family references no file** ✅. That happens after
+a plain Export… whose file is then imported into the same document, because the import
+[keeps the `DocumentId`](#importing-a-ghcluster-drops-its-name-description-and-icon).
+That member reaches `CreateFromFilePath(null)`, which throws `ArgumentNullException`,
+and no undo record is pushed. Any members before it in document order have already
+been re-read 📖.
+
+### Four operations give a new `DocumentId`, and none reaches nested copies
+
+| menu item | undo record | what gets a new `DocumentId` |
+|---|---|---|
+| Properties… | `"Cluster Properties"` | the top-level family, which also takes the edited name ✅ |
+| Internalise | `"Cluster Frabbing"` (sic) | the top-level family, which also drops its file reference ✅ |
+| Export & Reference… | `"Plünk Cluster"` (sic) | **only the clicked copy** ✅ |
+| Disentangle | `"Disassociate Cluster"` | the clicked copy 📖 |
+
+A copy nested inside another cluster keeps the old id in every case ✅, so it silently
+leaves the family. Properties is the surprising one: **renaming a cluster disentangles
+its nested copies.**
+
+**Export & Reference disentangles the clicked copy from every other copy** ✅.
+`MenuExportAndLinkClicked` 📖 sets the clicked copy's `DocumentId` *before* it asks for
+the family, so the family is that one copy. The other top-level copies keep the old id
+and no file reference. Its `GH_ClusterDocumentIdAction` is also created after the
+change, so it holds the new id: undo takes the file reference away again but **never
+restores the old id** ✅. If you need the old id, note it before the operation, for example when the
+cluster's context menu opens.
+
+Each record holds, per member, a `GH_Cluster.GH_ClusterDocumentIdAction` (public),
+paired with a `GH_ClusterPropertiesUndoAction` for Properties or a
+`GH_ClusterReferenceAction` for Internalise and Export & Reference ✅. Disentangle's
+record holds the id action alone 📖. Its private `Guid m_id` is the id from
+the other side of the operation, swapped on every undo and redo 📖. Its target is the
+`GH_ObjectUndoAction`'s own private `m_object_id` ([above](#a-cluster-commit-raises-no-event-of-its-own)).
+
 ## Params and persistent data
 
 ### `SolutionExpired` is raised on the top-level object only
@@ -268,6 +391,54 @@ Two traps 📖✅:
   "not modified" on a fixture it just populated.
 - **`GH_SettingsServer.ConstainsEntry(string)`** is Grasshopper's spelling; there is no
   `ContainsKey`. `DeleteValue(key)` restores "absent" ✅.
+
+## Adding and pasting objects
+
+### `ObjectsAdded` fires before the undo record and the solve
+
+`GH_Document.AddObject(obj, update)` 📖 runs `AddedToDocument`, then raises
+`ObjectsAdded`, then starts `NewSolution` when `update` is true. A handler runs before
+the solve ✅. `MergeDocument` raises `ObjectsAdded` once at its end 📖.
+
+Grasshopper's callers record their undo step **after** the add 📖: the editor's Paste
+(`MergeDocument`, then `RecordAddObjectEvent("Paste", …)`) and Insert Clusters
+(`AddObject`, then `"Insert Clusters"`). So a handler runs before that record exists
+✅. A `GH_AddObjectAction` serializes its object only when it is undone 📖, so **a
+handler's changes need no undo record of their own**: undo then redo brings back the
+object as the handler left it ✅.
+
+### Pasting from code needs `MutateAllIds()`
+
+✅ `target.MergeDocument(clip)` throws `ArgumentException: An item with the same key
+has already been added` when an object or param in `clip` has an id that `target`
+already holds. It throws only once `target` has built its lookup cache, which any
+`FindObject` call does. And it throws **after** the object has been added to
+`target`'s object list, while the object is still listed in `clip`, so it leaves a
+broken document.
+
+The usual way to get there is a cluster `Read` from another cluster's chunk. Its
+params keep their `InstanceGuid`s even after `NewInstanceGuid()` on the cluster ✅.
+Call `clip.MutateAllIds()` first, as the editor's paste does 📖. That keeps each
+cluster's `DocumentId` ✅, so the paste stays [entangled](#copy-paste-and-entanglement-from-code).
+
+### Copied objects keep proxy sources
+
+✅ An object copied on its own with `GH_DocumentIO` keeps each wired input's sources as
+`GH_ProxyParameter`s, each with its own `InstanceGuid` and a `ProxyGuid` naming the
+original source. `SourceCount` counts them and `Sources[i]` returns them. What happens
+next depends on how the copy is added:
+
+- `MergeDocument(doc)` resolves and removes proxies, so the copy is **wired to the
+  original's source** at once when that source is in the document ✅. That overload
+  means `resolveProxies: true, removeProxies: true`.
+- `MergeDocument(doc, false, false)` and `AddObject` leave the proxies in place ✅.
+
+A proxy left in place turns into a real wire whenever `GH_Document.RepairProxySources()`
+runs. That happens on the **redo of any `GH_AddObjectAction`**, an unrelated one
+included ✅ (an undo does not ✅), in `MergeDocument` with `resolveProxies`, and when a
+document is read 📖. So a wire can appear long after the paste: after an unrelated
+⌘⇧Z, or on reopening the file. `param.RemoveAllSources()` removes proxies too ✅. Call
+it in `ObjectsAdded` to place a copy unwired.
 
 ## Canvas UI
 
@@ -368,6 +539,13 @@ another app:
 
 The corollary is useful: if such a call returns, no menu or dialog is still open.
 
+**Some Grasshopper APIs report failure with a modal.** `Tracing.Assert` 📖 shows a
+"Grasshopper breakpoint" dialog, and it blocks the call in the same way. Check
+preconditions before calling an API that reports failure this way, such as
+[`GH_UserObject.InstantiateObject`](#copies-of-a-stale-cluster-are-stale-too). If a
+`run_csharp` call times out, assume a dialog is open and ask the person before
+retrying.
+
 **For live tests**, give the plugin a static interceptor that receives the built
 menu instead of showing it (`if (Interceptor != null) Interceptor(menu); else
 menu.Show(…)`), then drive the real path through the private `Canvas_MouseUp`:
@@ -422,9 +600,109 @@ at once, tell them to switch to Rhino, and read the outcome in a later call.
 - **Opening the editor on a password-protected cluster prompts for the password**
   (`RequestPassword`, an Eto dialog). **Cancel** opens nothing.
 
-**If Save & Close does rename a cluster's params, an installed canvas tool is
-fixing [the rename problem](#renaming-a-hook-never-reaches-the-clusters-params)** —
-switch it off before measuring stock behaviour.
+**If Save & Close or Update does rename a cluster's params, or a nested copy follows
+a commit, an installed canvas tool is fixing [the rename problem](#renaming-a-hook-never-reaches-the-clusters-params)
+or [the top-level limit](#entanglement-reaches-only-one-documents-top-level)**.
+Switch it off before measuring stock behaviour. A tool built to the
+[test-load recipe](#testing-a-canvas-tool-without-a-restart) has a static `Detach()`
+for that and an `Attach()` to restore it. List what is loaded with
+`Instances.ComponentServer.Libraries` (skip `IsCoreLibrary`).
+
+### The canvas search box
+
+Double-clicking empty canvas opens `GH_PopupSearchDialog`, the box that places a
+component by name.
+
+**It has no extension point, but a canvas validator runs just before it opens.**
+`GH_Canvas.ShowComponentSearchBox(Point screen)` 📖 asks every canvas validator
+`CanShowComponentSearchBox(at)`, then creates the dialog and shows it, all in one call.
+Nothing is raised once the dialog exists. To act on it, subclass `GH_CanvasValidator`,
+add it with `canvas.AddValidator(v)` (which hands it the canvas), return `true`, and
+post the work with `Canvas.BeginInvoke`. By the time that runs, the dialog is open ✅.
+
+- **A validator gets screen coordinates from `ShowComponentSearchBox`** ✅. A
+  double-click asks the validators **twice** 📖: first with the canvas location, then
+  again inside the parameterless `ShowComponentSearchBox()` with `Cursor.Position`.
+  Whatever a validator starts has to be idempotent.
+- **Work posted with `BeginInvoke` does not run inside the `run_csharp` call that
+  opened the box** ✅, because the payload holds the UI thread. It has run by the next
+  call.
+
+Useful private members of the dialog 📖:
+
+| member | what |
+|---|---|
+| `txtSearch` | the `TextBox` (an internal property); setting `Text` re-lists at once ✅ |
+| `HitList` | `List<GH_Hit>`, the results; `GH_Hit` is a private nested class with fields `_Weight`, `_Cluster`, `_Proxy`, `_Region` |
+| `SelectedIndex` | the highlighted result |
+| `InsertComponent()` | places the selected result and closes the box ✅ |
+| `PopulateHitListFromServer(string)`, `PopulateHitListFromClusters(string)` | the two listing passes |
+| `m_implied` | set when the text is a number, `=…` or similar |
+| `_inserted` | set at the start of `InsertComponent`, before `AddObject` |
+| `ItemHeight` | static, the row height |
+
+A `TextChanged` handler added after construction runs after the dialog's own, so it
+can re-order or replace the results.
+
+**The box also lists the document's clusters, badly.** `PopulateHitListFromClusters`
+lists the current document's top-level clusters as "Name (cluster)" ✅, with three
+bugs:
+
+- **Every entangled copy is a separate result** ✅, with nothing to tell them apart.
+  The method builds a `HashSet<Guid>` of `DocumentId`s, apparently to list each family
+  once, but never adds to it 📖.
+- **It adds one result per word typed** ✅, each weighted against the whole text with
+  a growing weight. The duplicates with lower weights usually fall off the visible
+  list.
+- **Clusters that don't match are listed too** ✅, at weight 0, below everything else
+  when there is room.
+
+The only report found is an unanswered forum post,
+<https://discourse.mcneel.com/t/hide-cluster-from-text-search-list/141062>.
+
+**Placing a cluster from the box pastes a full copy of the one picked, and records no
+undo** ✅. `InsertComponent` copies, pastes and `MutateAllIds()`s the picked cluster,
+then calls `AddObject` 📖. So the new copy:
+
+- stays entangled with the copy picked (the same `DocumentId`), which is the intent;
+- keeps that copy's input sources as [proxies](#copied-objects-keep-proxy-sources),
+  which become real wires at the next redo or reopen;
+- keeps that copy's input persistent data and its nickname;
+- gets **no undo step**. A component placed from the box records `"Add <Name>"`
+  through `InstantiateNewObject` 📖.
+
+**To drive it from `run_csharp`** ✅: call
+`canvas.ShowComponentSearchBox(canvas.PointToScreen(pt))`, find the dialog in
+`Application.OpenForms` ([below](#finding-a-dialog-grasshopper-opened)), set
+`txtSearch.Text`, read `HitList`, then set `SelectedIndex` and invoke
+`InsertComponent()` by reflection. If you don't insert, close it with
+`dialog.Close()`. To see anything a validator posted, open the box in one call and
+work with it in the next.
+
+### Finding a dialog Grasshopper opened
+
+✅ On macOS, `Form.OwnedForms` is empty under Rhino's WinForms shim, even for a form
+shown with `Show(owner)` whose `Owner` reads back as that owner. Find it in
+`Application.OpenForms` instead, by type name (`GH_PopupSearchDialog`, for example).
+
+### Rendering the canvas to an image
+
+✅ `GH_Canvas.GenerateHiResImageTile(GH_Viewport vp, Color background)` renders any part
+of a document to a `Bitmap`, off screen. It checks a result visually without a
+screenshot, which the agent's shell [cannot take](../write-scripts/rhino-mcp-platform.md#gotchas-that-look-like-bugs):
+
+```csharp
+var bb = doc.BoundingBox(false);
+var vp = new GH_Viewport(canvas.Viewport) { Zoom = 1f };
+vp.Width = (int)bb.Width + 40; vp.Height = (int)bb.Height + 40;
+vp.Tx = (int)(-bb.X + 20); vp.Ty = (int)(-bb.Y + 20);
+canvas.GenerateHiResImageTile(vp, Color.White).Save(pngPath);
+```
+
+It draws whatever document the canvas is showing 📖, so set `canvas.Document = doc`
+first, and restore it afterwards. An exception inside the drawing pipeline opens a
+modal message box 📖, which blocks the call
+[like any dialog](#menus-and-dialogs-block-the-call-that-opens-them).
 
 ## Testing a canvas tool without a restart
 
@@ -486,6 +764,11 @@ ilspycmd -t System.Windows.Forms.ToolStripDropDown \
 
 `-t <FullTypeName>` decompiles one type, which is enough for targeted reading. The
 shim is the answer to "how does this actually behave on a Mac".
+
+To search across types, decompile the whole assembly as a project:
+`ilspycmd -p -o <dir> <dll>` writes one `.cs` file per type, about 1,500 for
+Grasshopper, in a few seconds. Then grep it, for example for an undo record's name or
+for every caller of a method.
 
 ## Related
 

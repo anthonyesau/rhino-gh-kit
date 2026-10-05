@@ -174,5 +174,5 @@ Two rules that are easy to break and expensive to unpick:
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/publishing.md` — versioning, tags, why the release step is its own script
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/dotnet-build.md` — the pipeline in full, and the new-project checklist
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/file-naming.md` — the gate `publish.sh` runs first
-- `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/gh-internals.md` — clusters, params and persistent data, canvas menus, swapped attributes, test-loading a build, decompiling Grasshopper
+- `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/gh-internals.md` — clusters (referenced and imported ones too), params and persistent data, adding and pasting objects, canvas menus, the canvas search box, swapped attributes, test-loading a build, decompiling Grasshopper
 - `${CLAUDE_PLUGIN_ROOT}/docs/ship-a-plugin/testing-in-grasshopper.md` — a canvas tool's test suite, built with `dotnet build` and run inside Grasshopper

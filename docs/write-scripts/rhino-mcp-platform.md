@@ -243,14 +243,17 @@ finishes.
 - **A payload that opens a menu or modal dialog does not return until a person closes
   it**, and the Platform abandons the call after 300 s. A context menu appears above
   every app and closes at the first click elsewhere; an Eto dialog opens *behind* the
-  frontmost app, where nobody may notice it. Rhino keeps answering meanwhile: a later
+  frontmost app, where nobody may notice it. Some Grasshopper APIs open one only when
+  they fail, through `Tracing.Assert`, so check their preconditions first. Rhino keeps answering meanwhile: a later
   call runs nested inside the modal loop, against a half-finished operation. Drive the
   code path behind the UI instead — recipe and details in
   [gh-internals.md](../ship-a-plugin/gh-internals.md#menus-and-dialogs-block-the-call-that-opens-them).
 - **`screencapture` fails from the agent's shell** with *"could not create image from
   display"* (macOS screen-recording permission). Verify by reading state through
   `run_csharp`, or use the Platform's `get_viewport_image` for a Rhino viewport — not a
-  shell screenshot of the Grasshopper window.
+  shell screenshot of the Grasshopper window. A Grasshopper canvas renders to a PNG off
+  screen with `GH_Canvas.GenerateHiResImageTile`
+  ([recipe](../ship-a-plugin/gh-internals.md#rendering-the-canvas-to-an-image)).
 
 ## Related
 
