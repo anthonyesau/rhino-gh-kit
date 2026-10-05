@@ -229,7 +229,7 @@ def main(argv):
     if do_build:
         print("== regenerating build/gen and validating headers")
         sys.stdout.flush()
-        subprocess.run([os.path.join(KIT_TOOLING, "publish.sh")],
+        subprocess.run([os.path.join(KIT_TOOLING, "publish.sh"), "build"],
                         cwd=REPO, check=True)
         print("== building script-forge/tooling/fixture-runner")
         sys.stdout.flush()
