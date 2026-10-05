@@ -47,7 +47,7 @@ Every tracked path is POSIX-portable: **`A–Z a–z 0–9 . _ -` only**, no lea
 is two problems, not one.
 
 `python3 tooling/check_filenames.py` enforces this and runs first in
-`publish.sh`; it has no exemption list. Case convention and the traps
+`publish.sh`; it has no exemption list for this rule. Case convention and the traps
 (case-only renames, NFD/NFC) are in
 [docs/ship-a-plugin/file-naming.md](docs/ship-a-plugin/file-naming.md).
 
@@ -93,9 +93,9 @@ and [docs/write-scripts/header-reference.md](docs/write-scripts/header-reference
 
 | Path | What |
 |---|---|
-| `script-forge/script-forge.cs` | The published component — the only `.cs` directly inside `script-forge/`; everything else lives under `examples/` (kit-wide, unmoved). |
+| `script-forge/script-forge.cs` | The published component — the only `.cs` directly inside `script-forge/`; everything else lives under `examples/` (kit-wide). |
 | `script-forge/script-forge.svg` (+`-dark`) | Its icon, sitting alongside the source rather than in an `icons/` subfolder — doubles as both the 24px canvas icon and, rasterized to 128px, the Yak package icon. |
-| `examples/` | ~30 demo components the forge builds, with icons in `examples/icons/` and the worked-examples canvas saved alongside — kit-wide (unmoved), forged only, never on the compiled ship list. |
+| `examples/` | Demo components the forge builds, with icons in `examples/icons/` and the worked-examples canvas saved alongside — kit-wide, forged only, never on the compiled ship list. |
 | `script-forge/docs/` | The component's **internals** only — `forge-under-test.md` (how to test an edit to `script-forge.cs`) and `known-limitations.md`. Driving the forge (`script-forge.md`, `component-reference.md`) is in `docs/use-the-forge/`; the header grammar, the build and the filename gate are kit-wide under `docs/`. |
 | `script-forge/audit-fixtures/` | Deliberately malformed / edge-case `@component` sources — pinned against both parsers by `python3 script-forge/tooling/test_fixtures.py` (see `docs/ship-a-plugin/dotnet-build.md`, "Testing the header parsers"). |
 | `script-forge/src/ScriptForge/` | The .NET project — **two** hand-written files: the csproj and `ScriptForgeInfo.cs`. Neither mentions the component. |
@@ -104,7 +104,7 @@ and [docs/write-scripts/header-reference.md](docs/write-scripts/header-reference
 | `script-forge/tooling/clean-forge-state.cs` | One-off: purges stale pre-`{path}#t` Script Forge state from a `.gh`'s value table. Run via `run_csharp` against the open document; see the file's own header. |
 | `script-forge/tooling/test_fixtures.py` + `script-forge/tooling/fixture-runner/` | The `audit-fixtures/` test suite and the dev-only C# console harness it uses to reach `script-forge.cs`'s own private header parser by reflection — not a shipped artifact (never compiles into `ScriptForge.gha`), but permanent tracked source. Project-specific, not shared kit infrastructure — imports the kit's `gh_meta.py` and shells out to the kit's `publish.sh` from one level up. |
 
-`tooling/check_filenames.py` (kit-wide, unmoved) still gates `script-forge/` —
+`tooling/check_filenames.py` (kit-wide) also gates `script-forge/` —
 it takes `--root` and is run with `--root script-forge` as part of that
 project's `publish.sh` pass.
 
@@ -173,7 +173,7 @@ tooling/publish.sh --repo script-forge install      # ... + yak install it from 
 tooling/publish.sh --repo script-forge push         # ... + PUBLIC, permanent upload; prompts first
 ```
 
-Iterating is unchanged and still the fast path: edit `script-forge/script-forge.cs`
+Iterating is the fast path: edit `script-forge/script-forge.cs`
 → push to a live forge → test on canvas. Compiling is the *release* step. There is no
 hot reload on macOS, so every compiled-behaviour test costs a Rhino restart —
 verify which binary is live by reflecting on something the build changed,

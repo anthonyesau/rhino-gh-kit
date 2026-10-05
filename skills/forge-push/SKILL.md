@@ -8,7 +8,7 @@ allowed-tools: mcp__rhino__run_csharp, mcp__rhino__g1_get_canvas_graph, mcp__rhi
 
 Script Forge is a compiled Grasshopper component that creates and updates *other*
 script components from source. It is the kit's authoring path: there is no
-reflection route for this any more, and nothing else in the kit pushes source.
+reflection route, and nothing else in the kit pushes source.
 
 **It must be installed** — proxy GUID `41822538-1827-4da2-bf84-58074c49b3ad`,
 palette Params ▸ Util. If it is not, stop and tell the user; do not improvise a

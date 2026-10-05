@@ -5,9 +5,9 @@ paths:
 ---
 
 <!--
-  Loads only when editing the kit's own tooling. This rule is NOT symlinked into
-  consuming projects (they carry no tooling/*.py — the tooling is single-sourced in
-  the plugin), so it only ever fires here in the kit repo. Paths are repo-relative.
+  Loads only when editing the kit's own tooling. Consuming projects carry no
+  tooling/*.py (the tooling is single-sourced in the plugin), so it only fires here.
+  Paths are repo-relative.
 -->
 
 # Tooling — the metadata header and the compile pipeline
