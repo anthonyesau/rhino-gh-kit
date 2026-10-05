@@ -239,7 +239,7 @@ measured for a paste and a User Object. Fix them on arrival, in an
 leaves `BaseGuid` empty. Set `uo.BaseGuid = GH_Cluster.ClusterComponentId` yourself,
 then check `Instances.ComponentServer.EmitObject(uo.BaseGuid) != null` before calling
 `InstantiateObject()`. With no base type it fails through `Tracing.Assert`, which
-opens a [modal dialog](#menus-and-dialogs-block-the-call-that-opens-them) 📖.
+opens a [modal dialog](#menus-and-dialogs-block-the-call-that-opens-them) ✅.
 
 ## Referenced clusters
 
@@ -312,7 +312,8 @@ a referenced copy nested in another cluster keeps the old contents and stays
 `OutOfDate` ✅.
 
 On a cluster whose file is missing, Update opens a file dialog instead, re-targets the
-family, and records **`"Reference Cluster"`** with the same kind of actions 📖.
+family, and records **`"Reference Cluster"`** with one `GH_GenericObjectAction` per
+member ✅.
 
 **Update throws if any copy in the family references no file** ✅. That happens after
 a plain Export… whose file is then imported into the same document, because the import
@@ -328,7 +329,7 @@ been re-read 📖.
 | Properties… | `"Cluster Properties"` | the top-level family, which also takes the edited name ✅ |
 | Internalise | `"Cluster Frabbing"` (sic) | the top-level family, which also drops its file reference ✅ |
 | Export & Reference… | `"Plünk Cluster"` (sic) | **only the clicked copy** ✅ |
-| Disentangle | `"Disassociate Cluster"` | the clicked copy 📖 |
+| Disentangle | `"Disassociate Cluster"` | the clicked copy ✅ |
 
 A copy nested inside another cluster keeps the old id in every case ✅, so it silently
 leaves the family. Properties is the surprising one: **renaming a cluster disentangles
@@ -345,7 +346,7 @@ cluster's context menu opens.
 Each record holds, per member, a `GH_Cluster.GH_ClusterDocumentIdAction` (public),
 paired with a `GH_ClusterPropertiesUndoAction` for Properties or a
 `GH_ClusterReferenceAction` for Internalise and Export & Reference ✅. Disentangle's
-record holds the id action alone 📖. Its private `Guid m_id` is the id from
+record holds the id action alone ✅. Its private `Guid m_id` is the id from
 the other side of the operation, swapped on every undo and redo 📖. Its target is the
 `GH_ObjectUndoAction`'s own private `m_object_id` ([above](#a-cluster-commit-raises-no-event-of-its-own)).
 
@@ -539,8 +540,10 @@ another app:
 
 The corollary is useful: if such a call returns, no menu or dialog is still open.
 
-**Some Grasshopper APIs report failure with a modal.** `Tracing.Assert` 📖 shows a
-"Grasshopper breakpoint" dialog, and it blocks the call in the same way. Check
+**Some Grasshopper APIs report failure with a modal.** `Tracing.Assert` ✅ shows a
+"Grasshopper breakpoint" dialog with the message, a call stack, a "Do not show this
+message again" box and a Close button. It blocks the call in the same way, and the API
+returns its failure value only once a person closes it. Check
 preconditions before calling an API that reports failure this way, such as
 [`GH_UserObject.InstantiateObject`](#copies-of-a-stale-cluster-are-stale-too). If a
 `run_csharp` call times out, assume a dialog is open and ask the person before
@@ -621,8 +624,9 @@ add it with `canvas.AddValidator(v)` (which hands it the canvas), return `true`,
 post the work with `Canvas.BeginInvoke`. By the time that runs, the dialog is open ✅.
 
 - **A validator gets screen coordinates from `ShowComponentSearchBox`** ✅. A
-  double-click asks the validators **twice** 📖: first with the canvas location, then
-  again inside the parameterless `ShowComponentSearchBox()` with `Cursor.Position`.
+  double-click asks the validators **twice** ✅: first with the canvas location, then
+  again inside the parameterless `ShowComponentSearchBox()` with `Cursor.Position`, in
+  screen coordinates. So a synthesized double-click opens the box at the real cursor.
   Whatever a validator starts has to be idempotent.
 - **Work posted with `BeginInvoke` does not run inside the `run_csharp` call that
   opened the box** ✅, because the payload holds the UI thread. It has run by the next
