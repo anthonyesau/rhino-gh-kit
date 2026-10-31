@@ -51,7 +51,8 @@ else.
   `RhinoApp.InvokeRequired=False`). Mutate inline, but **defer `ExpireSolution`
   into `ghdoc.ScheduleSolution(5, …)`** — expiring an object mid-solution trips GH
   8's *object expired during a solution* guard and locks the canvas.
-- **`__rhino_doc__` is the injected `RhinoDoc`** (it *is* `RhinoDoc.ActiveDoc`).
+- **`__rhino_doc__` is the injected `RhinoDoc`**, the calling slot's document —
+  not always `RhinoDoc.ActiveDoc` when two documents are open.
   The Grasshopper handle is `Instances.ActiveCanvas.Document` — a different thing;
   an empty `__rhino_doc__` says nothing about the canvas.
 - **Results come back only as scraped stdout**, so print everything you want back.

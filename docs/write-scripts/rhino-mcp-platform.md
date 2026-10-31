@@ -148,10 +148,12 @@ which does resolve.
 *object expired during a solution* guard and locks the canvas. The scheduled solution
 fires on its own between MCP calls; `g1_solve_graph` is for determinism, not necessity.
 
-**3. `__rhino_doc__` is the injected `RhinoDoc`** — and it *is* `RhinoDoc.ActiveDoc`
-(`ReferenceEquals` → true). The Grasshopper handle is a different thing entirely:
-`Grasshopper.Instances.ActiveCanvas.Document`. An empty `__rhino_doc__` says nothing
-about the canvas.
+**3. `__rhino_doc__` is the injected `RhinoDoc`: the document whose slot took the
+call.** ✅ With one document open it is `RhinoDoc.ActiveDoc` too; with two (Rhino 8.36
+Mac, 2026-10-31) each slot's `__rhino_doc__` was its own document while `ActiveDoc`
+was the same one from both, so use `__rhino_doc__`. The Grasshopper handle is a
+different thing entirely: `Grasshopper.Instances.ActiveCanvas.Document`. An empty
+`__rhino_doc__` says nothing about the canvas.
 
 **4. Results come back only as scraped stdout.** `Console.WriteLine` everything you want
 to see. On 0.3.0 ✅ a clean run returns `{"payload":"<stdout>"}` and a failure
@@ -190,6 +192,50 @@ but not referenced), the payload compiles against whichever came second — swap
 the missing reference swaps too. A payload needing two unreferenced assemblies can't get
 them this way: reach the second by reflection, or build a DLL with `dotnet build` and
 load it (the recipe in [testing-in-grasshopper.md](../ship-a-plugin/testing-in-grasshopper.md)).
+
+## Opening a file in a spawned Rhino
+
+On macOS a Rhino that `spawn_slot` starts opens with a blank Untitled document. Every
+document is its own window with its own MCP listener, so once a file is open beside it
+there are two slots, and a call without `slot`, or code that reads
+`RhinoDoc.ActiveDoc`, lands in the wrong one. Close the blank one, but only once everything else is in place:
+
+1. `spawn_slot`.
+2. `_-Open "<path>"` from an Idle one-shot. It opens a **new** window and a new slot on
+   the next port, so `list_slots` again afterwards.
+3. Do all setup from the new document's slot first: load Grasshopper, open
+   definitions, open panels.
+4. Close the blank window **last**: `run_csharp`
+   [`tooling/answer-dialogs.cs`](../../tooling/answer-dialogs.cs) with
+   `mode = "close-untitled"` **into the new document's slot**. It refuses unless
+   exactly one never-saved, empty document is open beside another, and refuses a call
+   from the blank document's own slot, which would drop mid-close. It returns before
+   the work runs on the next Idle; read each step in
+   `~/Library/Logs/rhino-gh-kit-quit.log`.
+5. `list_slots`. One slot is left, and it reads `adopted: true` (both did once the
+   second window opened), so `close_slot` refuses it from then on: restart with
+   `mode = "quit"` instead (next section).
+
+Send nothing more unless it's needed. The first call after the blank window closed has
+crashed Rhino when it targeted the closed document (`EXC_BAD_ACCESS` in
+`CRhinoDoc::GetMRDocument`), the same crash `RunScript` gives in the table below.
+
+The blank document can read `Modified == true` with nothing in it, for no known reason,
+so the payload doesn't rely on `Modified == false`. It finds the window by its
+`NSDocument` having no `FileUrl`, not by its title, which is localised and becomes
+"Untitled 2" for a second one. ✅ The sequence it runs, measured by hand on Rhino 8.36
+Mac, 2026-10-31, from the slot of a file opened with `_-Open`:
+
+| step | result |
+|---|---|
+| `PerformClose(untitledWindow)` with `Modified == true` and no objects | an `NSSavePanel` sheet appears on the window. Its view tree in Rhino has no buttons, so `mode = "click"` can't answer it |
+| `sheet.Cancel(sheet)` (`AttachedSheet` is `AppKit.NSSavePanel`) | the sheet closes and the window stays open |
+| next Idle: `UpdateChangeCount(Cleared)`, `Modified = false`, `PerformClose(window)` | the window closes with no prompt; one slot is left (`adopted: true`), and the saved document is untouched (`Modified == false`) |
+
+✅ The mode itself, same day: it closed a clean blank window, and a dirtied one with
+its `NSSavePanel` already up, each leaving one slot and one unmodified document; it
+refused a call from the blank document's slot and a call with no blank document
+open; and `mode = "quit"` quit the Rhino afterwards.
 
 ## Restarting a spawned Rhino
 
@@ -248,6 +294,7 @@ second, and Rhino quit. What does **not** work, so don't reach for it:
 | `RhinoDoc.Modified = false`, then `_Exit` | the sheet still appears; a live plugin re-dirties the document in between |
 | `NSDocument.UpdateChangeCount(Cleared)` on a saved document | no sheet, but the autosaved changes **stay in the file** |
 | `RhinoApp.Exit()` | returns; Rhino keeps running |
+| `RhinoApp.RunScript(serial, "_-Close", …)` | hangs for the 300 s MCP timeout and closes nothing |
 | `close_slot` | refuses once the slot is re-adopted (`adopted: true`), as it is after closing the spawn's blank Untitled window |
 | `kill <pid>` | macOS puts a "Rhino quit unexpectedly" report in front of the user |
 | `doc.Save()` before quitting | writes behind the `NSDocument`'s back; a second one in a session raised "could not be autosaved" and "File Is Read-only" sheets |

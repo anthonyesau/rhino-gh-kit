@@ -136,7 +136,8 @@ Restart a Rhino you spawned with `${CLAUDE_PLUGIN_ROOT}/tooling/answer-dialogs.c
 (`mode = "quit"`), which answers the "save changes?" sheets that otherwise wait for
 a person — procedure in
 `${CLAUDE_PLUGIN_ROOT}/docs/write-scripts/rhino-mcp-platform.md`, "Restarting a
-spawned Rhino".
+spawned Rhino". Its `mode = "close-untitled"` closes the blank window a fresh spawn
+opens with, once the file you need is open ("Opening a file in a spawned Rhino").
 The one exception is a test load: a **canvas tool** (no components) can be loaded
 beside the installed copy into a fresh `AssemblyLoadContext` and driven through its
 own `Attach` / `Detach` — see

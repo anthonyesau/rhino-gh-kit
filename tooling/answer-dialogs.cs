@@ -1,5 +1,6 @@
-// answer-dialogs.cs — see and answer the dialogs that block Rhino on macOS, and
-// quit a spawned Rhino past its "save changes?" prompts to load a new build.
+// answer-dialogs.cs — see and answer the dialogs that block Rhino on macOS,
+// close a spawned Rhino's blank Untitled window, and quit a spawned Rhino past
+// its "save changes?" prompts to load a new build.
 // A payload for mcp__rhino__run_csharp; edit only the block marked EDIT THIS.
 //
 // Rhino asks "save changes?" as a sheet on the document's window, and Eto and
@@ -14,6 +15,11 @@
 //             buttons. Changes nothing. Run it when a call hangs or returns an
 //             empty payload: a later call runs nested inside the modal loop.
 //   "click" — press BUTTON on the first dialog that offers it.
+//   "close-untitled" — close the blank never-saved document a spawned Rhino
+//             opens with, and leave Rhino running. Refuses unless exactly one
+//             such document is open and the call comes from another
+//             document's slot. Works on the next Idle, after the call returns:
+//             `list_slots` next, and read LOG for each step.
 //   "quit"  — quit Rhino, discarding every unsaved change. Prints what it
 //             discards, clears each Grasshopper document's IsModified (else
 //             Grasshopper prompts too), watches for sheets and modals and
@@ -22,8 +28,9 @@
 //             Rhino goes. Confirm with `ps -p <pid>`, and read LOG for every
 //             dialog met and what was pressed.
 //
-// "quit" is only for a Rhino the agent spawned, holding files the agent opened.
-// Never send it to the user's own Rhino: it throws their unsaved work away.
+// "close-untitled" and "quit" are only for a Rhino the agent spawned, holding
+// files the agent opened. Never send either to the user's own Rhino: they
+// throw unsaved work away.
 // How to restart a spawned Rhino: docs/write-scripts/rhino-mcp-platform.md,
 // "Restarting a spawned Rhino".
 
@@ -35,7 +42,7 @@ using System.Linq;
 using System.Reflection;
 
 // --- EDIT THIS ---
-var mode = "list";          // "list" | "click" | "quit"
+var mode = "list";          // "list" | "click" | "close-untitled" | "quit"
 var button = "Cancel";      // "click": the title of the button to press
 // "quit": the buttons that discard, in order of preference. Two or more dirty
 // documents first raise one app-modal "review these changes?" alert, where
@@ -126,9 +133,94 @@ if (mode == "click")
   return;
 }
 
-if (mode != "quit")
+if (mode != "close-untitled" && mode != "quit")
 {
-  Console.WriteLine("unknown mode \"" + mode + "\" — use list, click or quit");
+  Console.WriteLine("unknown mode \"" + mode + "\" — use list, click, close-untitled or quit");
+  return;
+}
+
+Directory.CreateDirectory(Path.GetDirectoryName(log));
+var pid = System.Diagnostics.Process.GetCurrentProcess().Id;
+Action<string> note = line => File.AppendAllText(log, DateTime.Now.ToString("s") + " [" + pid + "] " + line + "\n");
+var cleared = Enum.Parse(mac.GetType("AppKit.NSDocumentChangeType"), "Cleared");
+Action<object> clear = nsdoc => nsdoc.GetType().GetMethods()
+  .First(m => m.Name == "UpdateChangeCount" && m.GetParameters().Length == 1).Invoke(nsdoc, new[] { cleared });
+
+if (mode == "close-untitled")
+{
+  // --- close-untitled --------------------------------------------------------
+  // The window is found by its NSDocument having no file, not by its title:
+  // "Untitled" is localised, and a second one is "Untitled 2". Clearing the
+  // change count is safe only because there is no file to keep (see quit).
+  // Enumerated, not Count: ObjectTable.Count reports the undo buffer.
+  Func<Rhino.RhinoDoc, bool> empty = d => { foreach (var o in d.Objects) return false; return true; };
+  var blank = Rhino.RhinoDoc.OpenDocuments().Where(d => string.IsNullOrEmpty(d.Path) && empty(d)).ToList();
+  if (blank.Count != 1)
+  {
+    Console.WriteLine("refused: " + blank.Count + " blank never-saved documents open, need exactly one");
+    return;
+  }
+  if (Rhino.RhinoDoc.OpenDocuments().Length < 2)
+  {
+    Console.WriteLine("refused: the blank document is the only one open — closing it closes the last slot");
+    return;
+  }
+  // Each document hosts its own MCP listener: closing the caller's drops the call.
+  if (ReferenceEquals(__rhino_doc__, blank[0]))
+  {
+    Console.WriteLine("refused: this call came from the blank document's own slot — send it from the other document's");
+    return;
+  }
+  var app = appType.GetProperty("SharedApplication").GetValue(null);
+  var untitled = ((IEnumerable)get(app, "DangerousWindows")).Cast<object>()
+    .Where(w => { var nd = get(get(w, "WindowController"), "Document"); return nd != null && get(nd, "FileUrl") == null; })
+    .ToList();
+  if (untitled.Count != 1)
+  {
+    Console.WriteLine("refused: " + untitled.Count + " windows hold a never-saved NSDocument, need exactly one");
+    return;
+  }
+  var window = untitled[0];
+  var name = (string)get(window, "Title");
+
+  // From Idle, never inside this call. A save panel is cancelled on one tick
+  // and the window closed on the next, the sequence measured by hand.
+  var cancelled = false;
+  EventHandler close = null;
+  close = (s, e) =>
+  {
+    Rhino.RhinoApp.Idle -= close;
+    try
+    {
+      var sheet = get(window, "AttachedSheet");
+      if (sheet != null)
+      {
+        if (sheet.GetType().FullName != "AppKit.NSSavePanel" || cancelled)
+        {
+          note("close-untitled: \"" + name + "\" has a " + sheet.GetType().FullName + " sheet attached" + (cancelled ? " after Cancel" : "") + ", left open");
+          return;
+        }
+        // The sheet as sender, like PerformClick.
+        sheet.GetType().GetMethods().First(m => m.Name == "Cancel" && m.GetParameters().Length == 1)
+          .Invoke(sheet, new[] { sheet });
+        cancelled = true;
+        note("close-untitled: cancelled the NSSavePanel on \"" + name + "\"");
+        Rhino.RhinoApp.Idle += close;
+        return;
+      }
+      clear(get(get(window, "WindowController"), "Document"));
+      note("close-untitled: cleared the change count of \"" + name + "\"");
+      blank[0].Modified = false;
+      note("close-untitled: RhinoDoc.Modified = false");
+      window.GetType().GetMethods().First(m => m.Name == "PerformClose" && m.GetParameters().Length == 1)
+        .Invoke(window, new[] { window });
+      note("close-untitled: PerformClose \"" + name + "\"");
+    }
+    catch (Exception ex) { note("close-untitled failed: " + ex.GetBaseException().Message); }
+  };
+  Rhino.RhinoApp.Idle += close;
+  Console.WriteLine("closing \"" + name + "\" on the next Idle; list_slots next. Its slot goes, and the one left " +
+    "reads adopted: true, so close_slot refuses it. Log: " + log);
   return;
 }
 
@@ -141,9 +233,6 @@ if (mode != "quit")
 // no NSButton walk can reach, and it has no file to keep, so its change count
 // is cleared before _Exit instead. RhinoDoc.Modified = false alone stops no
 // prompt, and RhinoApp.Exit() returns without quitting.
-Directory.CreateDirectory(Path.GetDirectoryName(log));
-var pid = System.Diagnostics.Process.GetCurrentProcess().Id;
-Action<string> note = line => File.AppendAllText(log, DateTime.Now.ToString("s") + " [" + pid + "] " + line + "\n");
 note("quit armed");
 
 foreach (var d in Rhino.RhinoDoc.OpenDocuments())
@@ -197,7 +286,6 @@ AppDomain.CurrentDomain.SetData("rhino-gh-kit.quit-timer", timer); // root it pa
 // Clearing and quitting share one Idle tick, so nothing re-dirties in between.
 // _Exit names a live document: RunScript against one that has closed crashes
 // Rhino (EXC_BAD_ACCESS in CRhinoDoc::GetMRDocument).
-var cleared = Enum.Parse(mac.GetType("AppKit.NSDocumentChangeType"), "Cleared");
 EventHandler exit = null;
 exit = (s, e) =>
 {
@@ -207,8 +295,7 @@ exit = (s, e) =>
   {
     var nsdoc = get(get(w, "WindowController"), "Document");
     if (nsdoc == null || get(nsdoc, "FileUrl") != null || !(bool)get(nsdoc, "IsDocumentEdited")) continue;
-    nsdoc.GetType().GetMethods().First(m => m.Name == "UpdateChangeCount" && m.GetParameters().Length == 1)
-      .Invoke(nsdoc, new[] { cleared });
+    clear(nsdoc);
     note("cleared never-saved \"" + get(w, "Title") + "\"");
   }
   foreach (var d in Rhino.RhinoDoc.OpenDocuments()) if (string.IsNullOrEmpty(d.Path)) d.Modified = false;
