@@ -191,6 +191,73 @@ the missing reference swaps too. A payload needing two unreferenced assemblies c
 them this way: reach the second by reflection, or build a DLL with `dotnet build` and
 load it (the recipe in [testing-in-grasshopper.md](../ship-a-plugin/testing-in-grasshopper.md)).
 
+## Restarting a spawned Rhino
+
+Loading a new plugin build means quitting Rhino and starting a fresh one, and on macOS
+the quit is where an agent gets stuck: a document with unsaved changes puts a
+"save changes?" sheet (Save / Revert Changes / Cancel) on its window, a modified
+Grasshopper document raises a modal of its own, and nothing the Platform offers can
+answer either. Send [`tooling/answer-dialogs.cs`](../../tooling/answer-dialogs.cs) with
+`mode = "quit"` instead. It discards every unsaved change, so it is **only for a Rhino
+the agent spawned**, holding files the agent opened:
+
+1. `list_slots`; note the spawned slot's `pid`.
+2. `run_csharp` the payload with `mode = "quit"` into that slot. It prints the documents
+   whose changes it discards, clears never-saved documents, then quits on the next Idle,
+   pressing **Review Changes…** on the alert that two or more dirty documents raise, and
+   **Revert Changes** on each document's sheet. The call may come back as an empty-JSON
+   error as Rhino goes.
+3. `ps -p <pid>` until it is gone, and read `~/Library/Logs/rhino-gh-kit-quit.log` for
+   every dialog met and what was pressed. A dialog with none of those buttons is logged
+   and left open, with Rhino still answering: `mode = "list"` shows it, and
+   `mode = "click"` presses the right button.
+4. `spawn_slot`, then reopen what the test needs.
+
+✅ Measured on Rhino 8.36 Mac, 2026-10-31:
+
+- **Rhino autosaves a dirty saved file in place.** About 30 s after an edit, and on
+  closing its window, the edit was on disk with nobody saving. So the changes being
+  "discarded" may already be in the file, and **Revert Changes** is what puts it back:
+  it restored the scratch file byte for byte (hash, size and mtime).
+- **Two or more dirty documents raise one app-modal alert first**: *"You have N Rhino 8
+  documents with unconfirmed changes"* — Review Changes… / **Quit Anyway** / Cancel.
+  Quit Anyway keeps every autosaved change and deletes untitled documents. Review
+  Changes… leads to a sheet per document.
+- **A never-saved document's prompt is an `NSSavePanel`** ("keep this new document?",
+  Delete / Cancel / Save) drawn out of process: its view tree in Rhino is one empty
+  `NSView`, so there is no button to press. The payload clears such a document's
+  `NSDocument` change count before `_Exit`, which is safe only because it has no file.
+- **Grasshopper asks last**, after every Rhino document has closed: a "Grasshopper
+  multi-save" window lists each unsaved document with its own save button, and
+  **Close** saves nothing. It appeared for a document cleared of `IsModified` earlier in
+  the session, and for one `DocumentServer` had stopped enumerating, so the payload
+  clears the flag again in the `_Exit` tick and presses Close on that window by title.
+- **Each document hosts its own MCP listener.** Once the last Rhino document closes,
+  no slot is left: a dialog that appears after that cannot be reached over MCP at all.
+
+With all of this in, a spawned Rhino holding a dirty saved file, a dirty Untitled
+document and a modified Grasshopper document quit in under a second with no click, and
+the saved file came back byte for byte. With a Grasshopper document re-dirtied as
+Rhino closed its documents, the multi-save window appeared and was closed in the same
+second, and Rhino quit. What does **not** work, so don't reach for it:
+
+| tried | result |
+|---|---|
+| `NSWindow.PerformClose` on a dirty saved document | no prompt; the edit is **saved into the file** |
+| `RhinoApp.RunScript` from Idle after a document closed | Rhino crashes (`EXC_BAD_ACCESS` in `CRhinoDoc::GetMRDocument`) and the crash reporter fills the user's screen |
+| `RhinoDoc.Modified = false`, then `_Exit` | the sheet still appears; a live plugin re-dirties the document in between |
+| `NSDocument.UpdateChangeCount(Cleared)` on a saved document | no sheet, but the autosaved changes **stay in the file** |
+| `RhinoApp.Exit()` | returns; Rhino keeps running |
+| `close_slot` | refuses once the slot is re-adopted (`adopted: true`), as it is after closing the spawn's blank Untitled window |
+| `kill <pid>` | macOS puts a "Rhino quit unexpectedly" report in front of the user |
+| `doc.Save()` before quitting | writes behind the `NSDocument`'s back; a second one in a session raised "could not be autosaved" and "File Is Read-only" sheets |
+
+The same payload answers any sheet or modal window, not only on quit: when a call
+hangs or comes back empty, `mode = "list"` says what is open and what it offers. It
+cannot answer a Rhino **getter** (`GetPoint`, `GetObject`…) waiting at the command line:
+those take no clicks, and `run_csharp` returns empty payloads until a person finishes
+or cancels them.
+
 ## Benchmarking is fair here
 
 `run_csharp` runs on the **UI thread**, so a solve triggered through it carries no
@@ -248,6 +315,9 @@ finishes.
   call runs nested inside the modal loop, against a half-finished operation. Drive the
   code path behind the UI instead — recipe and details in
   [gh-internals.md](../ship-a-plugin/gh-internals.md#menus-and-dialogs-block-the-call-that-opens-them).
+  A dialog already open can be read and answered from that later call with
+  [`tooling/answer-dialogs.cs`](../../tooling/answer-dialogs.cs) (`mode = "list"`, then
+  `"click"`).
 - **`screencapture` fails from the agent's shell** with *"could not create image from
   display"* (macOS screen-recording permission). Verify by reading state through
   `run_csharp`, or use the Platform's `get_viewport_image` for a Rhino viewport — not a

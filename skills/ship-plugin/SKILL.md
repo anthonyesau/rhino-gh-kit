@@ -132,6 +132,11 @@ are untagged on purpose** — tag one by hand only when the user wants a marker.
 
 **Only a Rhino restart loads a new build.** The file on disk changing does not
 swap what a running instance already mapped, and there is no hot reload on macOS.
+Restart a Rhino you spawned with `${CLAUDE_PLUGIN_ROOT}/tooling/answer-dialogs.cs`
+(`mode = "quit"`), which answers the "save changes?" sheets that otherwise wait for
+a person — procedure in
+`${CLAUDE_PLUGIN_ROOT}/docs/write-scripts/rhino-mcp-platform.md`, "Restarting a
+spawned Rhino".
 The one exception is a test load: a **canvas tool** (no components) can be loaded
 beside the installed copy into a fresh `AssemblyLoadContext` and driven through its
 own `Attach` / `Detach` — see
