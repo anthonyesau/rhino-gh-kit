@@ -23,7 +23,7 @@ second Rhino.** Call **`list_slots`** first; it never spawns. Each slot is one R
 listening**: ask them to run **`MCPStart`** in it rather than making another call, because
 any Rhino tool called without a `slot` then **auto-spawns a fresh Rhino** and works in that
 instead. With more than one slot, pass `slot` explicitly. The port is whatever the slot
-reports (10500 on Platform 0.3.0). Details:
+reports (usually 10500). Details:
 `${CLAUDE_PLUGIN_ROOT}/docs/write-scripts/rhino-mcp-platform.md` § Slots.
 
 If a task needs these tools and they are absent from the session, stop and ask the

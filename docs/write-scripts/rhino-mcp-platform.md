@@ -4,13 +4,16 @@ McNeel's first-party MCP server for Rhino — the one server this kit talks to. 
 the kit routes through a third-party server.
 
 Measured on **Rhino-MCP-Platform 0.2.1-wip** (Rhino 8.33, 2026-08-13) and re-measured
-where marked on **0.3.0** (Rhino 8.35, 2026-09-30), macOS arm64. The Platform is pre-1.0
-and its tool names are still moving — McNeel's own shipped subagent definition already
-references pre-`g1_` names — so **treat a Platform upgrade as requiring a tool-name
-re-check**, not a transparent bump.
+where marked on **0.3.0** (Rhino 8.35, 2026-09-30), macOS arm64. **0.4.0** was checked
+against its source and live tool list (2026-11-04): no tool the kit uses was renamed,
+added or removed, and `run_csharp` is unchanged, so the 0.3.0 measurements below were
+not re-run. The Platform is pre-1.0 and its tool names are still moving — McNeel's own
+shipped subagent definition already references pre-`g1_` names — so **treat a Platform
+upgrade as requiring a tool-name re-check**, not a transparent bump.
 
 - Docs: <https://mcneel.github.io/RhinoAI/> (they do not cover slots or the router)
-- Rhino plugin: `RhinoAI.rhp` in 0.3.0 (`RhinoMcpPlatform` in 0.2.x), id
+- Source: <https://github.com/mcneel/RhinoAI>, tagged `plugin-v<version>`
+- Rhino plugin: `RhinoAI.rhp` from 0.3.0 (`RhinoMcpPlatform` in 0.2.x), id
   `2668d7ed-f507-4a68-8295-8172147a0e39`
 
 ## Install and connect
@@ -22,7 +25,7 @@ tree:
 
 ```
 ~/Library/Application Support/McNeel/Rhinoceros/packages/<rhino-version>/Rhino-MCP-Platform/<platform-version>/
-  router/<os-arch>/rhino-mcp-router     ← the binary a client points at
+  router/<os-arch>/rhino-mcp-router     ← the payload the plugin stages (below)
 ```
 
 Both `<rhino-version>` and `<platform-version>` are whatever is actually installed —
@@ -35,23 +38,42 @@ ls ~/Library/Application\ Support/McNeel/Rhinoceros/packages/*/Rhino-MCP-Platfor
 `<os-arch>` is the router build for the machine running Rhino (`osx-arm64`, `osx-x64`,
 `win-x64`, …) — there is exactly one subfolder under `router/`.
 
-Three Rhino commands come with it: **`MCPStart`**, **`MCPConnect`**, **`MCPHelp`**.
+Four Rhino commands come with it 📖 (0.4.0): **`MCPStart`** (start this document's
+listener), **`MCPStatus`**, **`MCPConnect`**, and **`AI`**, which toggles the AI panel
+(`AIPanel` is a hidden alias). `MCPSpawn` and the per-agent commands are hidden.
 
-**`MCPConnect` writes the client config entry**, deriving the path above for you. The
-entry is a bare command path:
+**`MCPConnect` writes the client config entry**: a bare command path to the copy of the
+router the plugin stages at a version-free path.
 
 ```json
 { "mcpServers": { "rhino": {
-    "command": "/Users/<you>/Library/Application Support/McNeel/Rhinoceros/packages/<rhino-version>/Rhino-MCP-Platform/<platform-version>/router/<os-arch>/rhino-mcp-router"
+    "command": "/Users/<you>/Library/Application Support/McNeel/Rhinoceros/ai/bin/rhino-mcp-router"
 } } }
 ```
 
-**That path embeds both the Platform version and the architecture, so it goes stale on
-every Platform update.** A stale path surfaces as a connection error, not as "your config
-is out of date" — which is a slow thing to debug. **Re-run `MCPConnect` after every
-update** rather than hand-editing the version in. 0.3.0 also installs a byte-identical
-router at a version-free path, `~/Library/Application Support/McNeel/Rhinoceros/ai/bin/rhino-mcp-router`,
-which does not go stale.
+A config can point at the package path above instead, but that path embeds the Platform
+version, so it breaks on the next update — as a connection error, not as "your config is
+out of date", which is a slow thing to debug.
+
+**The staged router is refreshed when the plugin loads, not when Yak installs an
+update.** 📖 `RouterStaging.EnsureStaged` runs in the plugin's `OnLoad` (it loads at
+Rhino startup) and copies the package's `router/<os-arch>/` folder over `ai/bin/`
+wherever a file's size or modification time differs. ✅ So between installing an update
+and restarting Rhino, `ai/bin/` still runs the previous router: on 2026-11-04, with
+0.4.0 installed and Rhino not yet relaunched, `ai/bin/rhino-mcp-router` was
+byte-identical to 0.3.0's. **After a Platform update, restart Rhino, then the MCP
+client** — a router process already running keeps the binary it started with.
+
+**Every Rhino version shares `ai/bin/`, and it holds the router of whichever Rhino
+loaded the plugin last.** 📖 The staging test is "differs", not "newer", and `ai/` sits
+above the per-version package trees, so a Rhino 9 still on 0.3.0 puts 0.3.0's router
+back after Rhino 8 staged 0.4.0. Update the Platform in every Rhino version on the
+machine. Not tried live. To see which router a config is getting:
+
+```bash
+shasum -a 256 ~/Library/Application\ Support/McNeel/Rhinoceros/ai/bin/rhino-mcp-router \
+  ~/Library/Application\ Support/McNeel/Rhinoceros/packages/*/Rhino-MCP-Platform/*/router/*/rhino-mcp-router
+```
 
 ### Slots: which Rhino a call reaches
 
@@ -87,7 +109,7 @@ name** after the MCP servers disconnected and reconnected — Grasshopper closed
 unloaded. Not reproduced; treat state in a router-spawned Rhino as disposable.
 
 **The port is whatever the slot reports, and it moves.** 📖 `RhinoAIHost.TryGetNextPort`
-in 0.3.0's `RhinoAI.rhp` offers **10500** when this Rhino runs no server yet, and **one
+in `RhinoAI.rhp` (0.3.0 and 0.4.0) offers **10500** when this Rhino runs no server yet, and **one
 above its own highest port** when it already runs one. A Rhino runs one server per
 document, and on macOS each open window is its own document. If that candidate is
 already taken, for example by another Rhino, the OS picks a **random free port**. It
