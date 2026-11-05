@@ -280,23 +280,26 @@ component's descriptions are baked in at registration.
   (no `-windows`) is one binary that loads on Rhino 8 for Mac and Windows alike.
   `net7.0-windows` and `net48` in the template are Windows-only; `net48` exists solely
   for Rhino 7.
-- ✅ **Rhino 8.33 hosts the .NET 8 runtime** even though `RhinoCommon.dll` is itself
-  compiled as `net7.0`. Check for yourself:
+- ✅ **The .NET runtime Rhino hosts moves between service releases, and a `net8.0`
+  plugin loads across them.** Rhino 8.33 hosts .NET 8. Rhino 8.36 bundles only .NET
+  10.0.8. `RhinoCommon.dll` is compiled as `net7.0` on both. Check for yourself:
 
   ```bash
   R="/Applications/Rhino 8.app/Contents/Frameworks/RhCore.framework/Versions/A/Resources"
-  cat "$R/dotnetstart.8.runtimeconfig.json"     # -> Microsoft.NETCore.App 8.0.0, rollForward LatestMinor
+  cat "$R"/dotnetstart.*.runtimeconfig.json           # 8.36 -> Microsoft.NETCore.App 10.0.0, rollForward LatestMinor
+  ls "$R/dotnet/arm64/shared/Microsoft.NETCore.App"   # 8.36 -> 10.0.8
   strings "$R/RhinoCommon.dll" | grep -oE "\.NETCoreApp,Version=v[0-9.]+" | sort -u
   ```
 
-  So target **`net8.0`** unless you specifically want to load on pre-8.20 Rhino
-  installs; `net7.0` buys nothing else.
+  So target **`net8.0`** whatever the installed Rhino hosts. `net7.0` only adds
+  pre-8.20 Rhino installs, and a higher target stops the build loading on a Rhino
+  hosting .NET 8.
 - ✅ **WinForms is required even if your sources never mention it.** Grasshopper's own
   API surface is full of WinForms types (`AppendAdditionalComponentMenuItems` takes a
-  `ToolStripDropDown`), so compiling against `Grasshopper` needs them resolvable. On
-  macOS that means `<FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />`
-  plus `<EnableWindowsTargeting>true</EnableWindowsTargeting>` (Rhino 8.11+; earlier
-  Rhinos need the template's `net48` reference-assembly hack instead).
+  `ToolStripDropDown`), so compiling against `Grasshopper` needs them resolvable.
+  [What to compile against](#what-to-compile-against) has the two shapes that do it
+  (Rhino 8.11+; earlier Rhinos need the template's `net48` reference-assembly hack
+  instead).
 - ✅ **`<CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>` is mandatory, not
   optional.** The GH script sandbox compiles *checked*; without this the compiled
   build silently changes arithmetic behaviour relative to the sandbox the code was
@@ -402,6 +405,71 @@ component's descriptions are baked in at registration.
   `AssemblyLoadContext` — useful for a canvas tool, never for a component library,
   whose types Grasshopper registered at startup. See
   [gh-internals.md](gh-internals.md#testing-a-canvas-tool-without-a-restart).
+
+## What to compile against
+
+**Use the NuGet packages, not the DLLs in Rhino's app bundle.** ✅ Rhino 8.36's
+`System.Windows.Forms` and `System.Drawing.Common` reference the 9.0 BCL, so a
+`net8.0` project that references them fails with `CS1705`. Those references also tie
+the build to whichever Rhino is installed.
+
+✅ What each shape does, compiling one component that overrides
+`AppendAdditionalComponentMenuItems` on macOS, SDK 8.0.423, Rhino 8.36 installed:
+
+| references | build | the `.gha` asks for |
+|---|---|---|
+| the app bundle's DLLs | `CS1705` | |
+| the app bundle's DLLs, plus `<FrameworkReference Update="Microsoft.NETCore.App" TargetingPackVersion="9.0.0" />` | compiles | `System.Runtime` 9.0, which a Rhino hosting .NET 8 does not have |
+| `PackageReference` to `Grasshopper`, nothing else | `NETSDK1073`: the package declares a FrameworkReference to `Microsoft.WindowsDesktop.App.WindowsForms` | |
+| that, plus the FrameworkReference and `EnableWindowsTargeting` (`script-forge/src/ScriptForge/ScriptForge.csproj`) | compiles | `System.Runtime`, `System.Windows.Forms` and `System.Drawing.Common` 8.0 |
+| `PackageDownload` and `HintPath`, below | compiles | `System.Runtime` 8.0; `System.Windows.Forms` and `System.Drawing.Common` 7.0 |
+
+**Use the last one for a new project.** It asks for the same `System.Windows.Forms`
+version as Rhino's shim (7.0.0.0). ✅ Two plugins built this way work on Rhino 8.36:
+one passed a 564-check suite, and the other ran through its real menu item. Script
+Forge's shape asks for 8.0.0.0 of both; how that binds on 8.36 has not been measured.
+
+```xml
+<PropertyGroup>
+  <RhinoVersion>8.21.25188.17001</RhinoVersion>
+  <WinFormsRefVersion>7.0.20</WinFormsRefVersion>
+  <RhinoLib>$(NuGetPackageRoot)rhinocommon/$(RhinoVersion)/lib/net7.0</RhinoLib>
+  <GrasshopperLib>$(NuGetPackageRoot)grasshopper/$(RhinoVersion)/lib/net7.0</GrasshopperLib>
+  <WinFormsRef>$(NuGetPackageRoot)microsoft.windowsdesktop.app.ref/$(WinFormsRefVersion)/ref/net7.0</WinFormsRef>
+  <NoWarn>$(NoWarn);CS1701;CS1702;CA1416</NoWarn>
+</PropertyGroup>
+<ItemGroup>
+  <PackageDownload Include="RhinoCommon" Version="[$(RhinoVersion)]" />
+  <PackageDownload Include="Grasshopper" Version="[$(RhinoVersion)]" />
+  <PackageDownload Include="Microsoft.WindowsDesktop.App.Ref" Version="[$(WinFormsRefVersion)]" />
+</ItemGroup>
+<ItemGroup>
+  <Reference Include="RhinoCommon">                     <HintPath>$(RhinoLib)/RhinoCommon.dll</HintPath>                        <Private>false</Private></Reference>
+  <Reference Include="Rhino.UI">                        <HintPath>$(RhinoLib)/Rhino.UI.dll</HintPath>                           <Private>false</Private></Reference>
+  <Reference Include="Eto">                             <HintPath>$(RhinoLib)/Eto.dll</HintPath>                                <Private>false</Private></Reference>
+  <Reference Include="Grasshopper">                     <HintPath>$(GrasshopperLib)/Grasshopper.dll</HintPath>                  <Private>false</Private></Reference>
+  <Reference Include="GH_IO">                           <HintPath>$(GrasshopperLib)/GH_IO.dll</HintPath>                        <Private>false</Private></Reference>
+  <Reference Include="System.Windows.Forms">            <HintPath>$(WinFormsRef)/System.Windows.Forms.dll</HintPath>            <Private>false</Private></Reference>
+  <Reference Include="System.Windows.Forms.Primitives"> <HintPath>$(WinFormsRef)/System.Windows.Forms.Primitives.dll</HintPath> <Private>false</Private></Reference>
+  <Reference Include="System.Drawing.Common">           <HintPath>$(WinFormsRef)/System.Drawing.Common.dll</HintPath>           <Private>false</Private></Reference>
+  <Reference Include="Microsoft.Win32.SystemEvents">    <HintPath>$(WinFormsRef)/Microsoft.Win32.SystemEvents.dll</HintPath>    <Private>false</Private></Reference>
+</ItemGroup>
+```
+
+Keep this in its own `.props` file if a test project needs the same references.
+
+- **`RhinoVersion` is the floor.** ✅ `yak build` takes the package's tag from it:
+  8.21 gives `<name>-<version>-rh8_21-any.yak`. Compiling against the oldest supported
+  Rhino also means a public API added later fails the build. The tag is a claim, not a
+  test: these builds have run only on 8.36, so loading on 8.21 to 8.35 is a prediction.
+- **`RhinoVersion` needs `lib/net7.0`,** which the packages carry from 8.19 on ✅. 8.18
+  and earlier hold only `lib/net48`.
+- **`PackageDownload` puts the packages in the NuGet cache and adds nothing to the
+  build,** which is what keeps the FrameworkReference out. It needs an exact version
+  in brackets.
+- **A green build says nothing about private members** reached by reflection. To check
+  those, see
+  [gh-internals.md](gh-internals.md#checking-a-member-across-rhino-versions).
 
 ## Extending a compiled component from its single canonical file
 
@@ -539,7 +607,7 @@ icons/*.svg                      + <stem>-dark.svg light-ink variants
 src/
   <Project>.sln
   <Project>/
-    <Project>.csproj             net8.0, Grasshopper 8.*, TargetExt .gha, checked arithmetic
+    <Project>.csproj             net8.0, pinned Rhino references, TargetExt .gha, checked arithmetic
     AssemblyInfo.cs              GH_AssemblyInfo: Id, name, description, author, version
 yak/manifest.yml
 tooling/
@@ -558,7 +626,8 @@ grammar and the generator instead.
    to a single `net8.0` target and add: `AssemblyName`, `RootNamespace`,
    `GenerateAssemblyInfo=true` (leave it ON — see the 0.0.0.0 trap above; the template
    sets it false for a reason that does not apply to you), `CheckForOverflowUnderflow=true`,
-   the WinForms `FrameworkReference`, `System.Drawing.Common`, and the `build/gen` globs:
+   the references from [What to compile against](#what-to-compile-against) in place of
+   the template's, and the `build/gen` globs:
 
    ```xml
    <PropertyGroup><GenDir>$(MSBuildThisFileDirectory)../../build/gen/</GenDir></PropertyGroup>

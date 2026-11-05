@@ -8,8 +8,8 @@ payload. Compile errors surface in the terminal, and the tests run against the r
 types.
 
 ✅ Proven on a canvas tool's suite of 292 checks, passing repeatedly, Rhino 8.35 /
-Platform 0.3.0. Three deliberate source bugs each failed the relevant tests and passed
-again once reverted.
+Platform 0.3.0, and of 564 checks on Rhino 8.36. Three deliberate source bugs each
+failed the relevant tests and passed again once reverted.
 
 It builds on [gh-internals.md § Testing a canvas tool without a restart](gh-internals.md#testing-a-canvas-tool-without-a-restart)
 (the `Attach` / `Detach` contract and test-loading); read that first.
@@ -29,8 +29,10 @@ It builds on [gh-internals.md § Testing a canvas tool without a restart](gh-int
 The plugin csproj needs `<Compile Remove="tests/**" />`, or the SDK's default glob
 pulls the tests into the `.gha`.
 
-The test project references Rhino's DLLs exactly as the plugin does, with
-`<Private>false</Private>` so nothing of Rhino is copied to the output — the
+The test project references Rhino's DLLs exactly as the plugin does, so keep those
+references in one `.props` file that both import. Its contents are
+[What to compile against](dotnet-build.md#what-to-compile-against). Each reference
+has `<Private>false</Private>`, so nothing of Rhino is copied to the output, and the
 references bind to what Rhino already has loaded:
 
 ```xml
@@ -43,23 +45,11 @@ references bind to what Rhino already has loaded:
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <NoWarn>$(NoWarn);CS1701;CS1702;NU1701;CA1416</NoWarn>
   </PropertyGroup>
-  <PropertyGroup>
-    <RhinoResources Condition="'$(RhinoResources)' == ''">/Applications/Rhino 8.app/Contents/Frameworks/RhCore.framework/Resources</RhinoResources>
-    <GhPlugin>$(RhinoResources)/ManagedPlugIns/GrasshopperPlugin.rhp</GhPlugin>
-  </PropertyGroup>
   <ItemGroup>
     <Compile Remove="run-tests.cs" />
     <Compile Include="../src/*.cs" />
   </ItemGroup>
-  <ItemGroup>
-    <Reference Include="RhinoCommon">          <HintPath>$(RhinoResources)/RhinoCommon.dll</HintPath>           <Private>false</Private></Reference>
-    <Reference Include="Rhino.UI">             <HintPath>$(RhinoResources)/Rhino.UI.dll</HintPath>              <Private>false</Private></Reference>
-    <Reference Include="Eto">                  <HintPath>$(RhinoResources)/Eto.dll</HintPath>                   <Private>false</Private></Reference>
-    <Reference Include="System.Windows.Forms"> <HintPath>$(RhinoResources)/System.Windows.Forms.dll</HintPath>  <Private>false</Private></Reference>
-    <Reference Include="System.Drawing.Common"><HintPath>$(RhinoResources)/System.Drawing.Common.dll</HintPath> <Private>false</Private></Reference>
-    <Reference Include="Grasshopper">          <HintPath>$(GhPlugin)/Grasshopper.dll</HintPath>                <Private>false</Private></Reference>
-    <Reference Include="GH_IO">                <HintPath>$(GhPlugin)/GH_IO.dll</HintPath>                      <Private>false</Private></Reference>
-  </ItemGroup>
+  <Import Project="../RhinoReferences.props" />
 </Project>
 ```
 
@@ -91,7 +81,8 @@ finally { alc.Unload(); }
 ```
 
 - **`LoadFromStream` over bytes**, not `LoadFromAssemblyPath`, so Rhino never holds the
-  file and a rebuild while it runs is fine.
+  file, a rebuild while it runs is fine, and the rebuilt file is what loads
+  ([why](gh-internals.md#testing-a-canvas-tool-without-a-restart)).
 - **Collectible, then `Unload()`** — the context is gone from `AssemblyLoadContext.All`
   on the next call, provided the suite detached everything it attached.
 - **No `Console.SetOut` redirect is needed** ✅: the test assembly's `Console.WriteLine`

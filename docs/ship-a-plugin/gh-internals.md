@@ -683,6 +683,41 @@ then calls `AddObject` 📖. So the new copy:
 `dialog.Close()`. To see anything a validator posted, open the box in one call and
 work with it in the next.
 
+### A cluster editor's canvas color
+
+`GH_Painter.DrawCanvasFill` and `DrawCanvasGrid` 📖 hard-code the background to
+(165, 185, 235) and the grid to (0, 0, 100) for any document with an `Owner`, whatever
+`GH_Skin` says. So no skin setting changes it. `DrawBackground` 📖 skips both on a mono
+canvas (`GH_Skin.canvas_mono`) and in `GH_CanvasMode.Thumbnail`.
+
+**To change it, paint over it** ✅ (Rhino 8.36). `GH_Canvas.Regen_DrawBackGround` 📖
+raises `CanvasPaintBackground` after the painter finishes and before groups, wires and
+objects. An opaque fill in that handler replaces Grasshopper's. It covers the grid and
+the shaded edge too, so draw your own grid, and call the private
+`GH_Painter.DrawCanvasShadowEdge(GH_Viewport, RectangleF)` for the edge.
+
+`GenerateHiResImageTile` [below](#rendering-the-canvas-to-an-image) 📖 clears to the
+color it is given and draws only the middle ground: no canvas fill or grid, and no
+`CanvasPaintBackground`. So it cannot show or check a color painted this way.
+
+### Rhino's color picker
+
+✅ Measured on Rhino 8.36. In Rhino, `Eto.Forms.ColorDialog` is handled by
+`Rhino.UI.Controls.RhinoColorDialogHandler`.
+
+- **It is modal.** `ShowDialog` holds a `run_csharp` call until a person answers it
+  ([above](#menus-and-dialogs-block-the-call-that-opens-them)).
+- **`ColorChanged` fires as the person picks,** so a handler can preview the color
+  live.
+- **Cancel restores the color through `ColorChanged` too.** So that event never means
+  "chosen". Decide that from what `ShowDialog` returns.
+
+Opening it from a `RhinoApp.Idle` one-shot gave **two pickers in a row, and no canvas
+repaint in the first**. The plugin's real menu item gave one picker with a working
+preview. The cause is unknown, and the one-shot timer
+[above](#menus-and-dialogs-block-the-call-that-opens-them) was not tried. Test the
+preview through the real menu item.
+
 ### Finding a dialog Grasshopper opened
 
 ✅ On macOS, `Form.OwnedForms` is empty under Rhino's WinForms shim, even for a form
@@ -717,7 +752,7 @@ canvas's types.
 
 ```csharp
 var alc = new AssemblyLoadContext("MyTool-test-" + n);
-var asm = alc.LoadFromAssemblyPath("/path/to/build/MyTool.gha");
+var asm = alc.LoadFromStream(new MemoryStream(File.ReadAllBytes("/path/to/build/MyTool.gha")));
 asm.GetType("MyTool.Priority").GetMethod("Attach").Invoke(null, null);
 AppDomain.CurrentDomain.SetData("mytool.asm", asm);   // reachable from the next run_csharp call
 ```
@@ -725,6 +760,16 @@ AppDomain.CurrentDomain.SetData("mytool.asm", asm);   // reachable from the next
 To iterate, fetch the previous `Assembly` back from `GetData`, call its `Detach()`,
 and load the next build under a new context name. The same assembly name loads
 again without complaint.
+
+**Load from bytes, not with `LoadFromAssemblyPath`.** ✅ While an assembly loaded from
+a path is still alive, loading that path into a new context returns the **old build**,
+even though the file has changed. That was seen on Rhino 8.36, and it reproduces in a
+plain .NET 8 console app. A different path loads the new build, and so does
+`LoadFromStream`. A stream-loaded assembly's `Location` is empty, so read nothing
+relative to it.
+
+**Confirm the load by reflecting on something only the new build has.** A version
+number proves nothing unless it was bumped.
 
 This needs the plugin to expose **idempotent public static `Attach()` / `Detach()`**
 — subscribe and unsubscribe events, install and remove menus, restore any swapped
@@ -773,6 +818,31 @@ To search across types, decompile the whole assembly as a project:
 `ilspycmd -p -o <dir> <dll>` writes one `.cs` file per type, about 1,500 for
 Grasshopper, in a few seconds. Then grep it, for example for an undo record's name or
 for every caller of a method.
+
+### Checking a member across Rhino versions
+
+The `RhinoCommon` and `Grasshopper` NuGet packages hold a build of each DLL per service
+release, so a reflection target can be checked against many versions without installing
+any of them. `RhinoCommon` also carries `Rhino.UI.dll` and `Eto.dll`.
+
+```bash
+ilspycmd -t Grasshopper.Kernel.Special.GH_Cluster \
+  ~/.nuget/packages/grasshopper/8.21.25188.17001/lib/net7.0/Grasshopper.dll
+```
+
+✅ **Private names are kept in all of them, but method bodies are not:**
+
+| DLL | 8.19 | 8.21 | 8.35 |
+|---|---|---|---|
+| `Grasshopper.dll` | real | real | real |
+| `GH_IO.dll` | real | real | real |
+| `RhinoCommon.dll` | `throw null` | `throw null` | real |
+| `Rhino.UI.dll` | `throw null` | `throw null` | real |
+
+So a name check works on every one, and a body can be read only where there is one.
+Check that a body is there before reasoning from it. A package's DLL may not be the
+same build as the file Rhino for Mac loads, so a match is evidence that the member
+exists in that release, and a live run is still the proof.
 
 ## Related
 
