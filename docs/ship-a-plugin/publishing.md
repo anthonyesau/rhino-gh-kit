@@ -21,14 +21,16 @@ the **`ship-plugin`** skill instead of this file; this is the reference behind i
 
 ## The pipeline
 
-`tooling/publish.sh` runs it, cumulatively — validate → generate → build →
-package → install → push:
+`tooling/publish.sh` runs it — validate → generate → build → package → install,
+each stage running the ones before it. The pushes are separate runs that build
+nothing:
 
 ```bash
 tooling/publish.sh --repo script-forge build        # gh_meta.py --all --check + gh_codegen.py + dotnet build
 tooling/publish.sh --repo script-forge              # ... + yak build, copied into $YAK_LOCAL_REPO (the default)
 tooling/publish.sh --repo script-forge install      # ... + yak install from that repo
-tooling/publish.sh --repo script-forge push         # ... + PUBLIC, permanent upload; prompts first
+tooling/publish.sh --repo script-forge push         # upload the installed, tested build: PUBLIC, permanent; prompts first
+tooling/publish.sh --repo script-forge push-test    # the same upload to McNeel's test server, wiped nightly
 ```
 
 `--repo` names the project directory and defaults to `.`; this kit's compiled
@@ -61,7 +63,9 @@ Two things to know before you trust a result:
   every project on a machine at one folder, export `YAK_LOCAL_REPO` from the
   shell profile; the environment outranks a project's `publish.conf`. `push` is the only
   stage that reaches yak.rhino3d.com, and whether a project may take it
-  belongs in that project's `CLAUDE.md`.
+  belongs in that project's `CLAUDE.md`. `push-test` sends the same `.yak` to
+  `https://test.yak.rhino3d.com` instead: visible to anyone until McNeel wipes
+  the server overnight, and until then that version cannot be pushed there again.
 - **Register the local repo as a package source in Rhino, or the Package
   Manager entry shows only a name and an installed version.** Author, Url,
   Description, Date published and the Version dropdown all come from the
@@ -93,6 +97,23 @@ Two things to know before you trust a result:
   any canvas icon the build embeds as a resource. The manifest's `icon:` key
   and the conf's `PACKAGE_ICON_SVG` must agree; the pipeline fails the build
   if one is set without the other.
+- **A push ships the build you tested, never a rebuild.** `push` and `push-test`
+  build nothing: they upload the package in `$YAK_LOCAL_REPO` whose `.gha` is
+  byte-identical to the copy installed in Rhino, and refuse when there is none.
+  A rebuild is a different build: the .NET SDK stamps the commit into the
+  assembly (`0.4.5-beta+<sha>`), so even a README commit changes the bytes. The
+  order is `install`, restart Rhino and test, then push; any rebuild in between
+  sends you back to `install`. A test-server rehearsal can then install it back
+  from there (`yak install --source https://test.yak.rhino3d.com <name>
+  <version>`), as a user would. `tooling/tested-yak.sh` does the matching, for
+  `release.sh` too.
+- **Run `yak login` from your home folder, or a push cannot find the token.**
+  On macOS yak keeps the token at `.mcneel/yak.yml` under the *current
+  folder*, not under `~` as McNeel's docs say (measured 2026-11-11, yak 0.15.5 /
+  Rhino 8.37): a login run from a project folder writes the credential into the
+  working copy, and yak then finds it only from that folder. Both pushes run yak
+  from `$HOME`, refuse to start building without `~/.mcneel/yak.yml`, and warn
+  about a stray token in the project. Git-ignore `.mcneel/` in every project anyway.
 
 ## Yak
 
@@ -226,19 +247,23 @@ Handing them a bare `.gha` instead means a hand-copy into Grasshopper's
 `Libraries/`, which has no version story at all.
 
 Two commands. There is deliberately **no `release` stage** in `publish.sh`: its
-stages are a straight line where each runs everything above it, so a release
-block would be inherited by whichever stages sit below it — making either
-`install` (the everyday command) or `push` (the public upload) cut a GitHub
-release as a side effect. Releases are rare enough to stay explicit.
+build stages are a straight line where each runs everything above it, so a
+release block would be inherited by the stages below it — making `install` (the
+everyday command) cut a GitHub release as a side effect. Releases are rare enough
+to stay explicit.
+
+`release.sh` builds nothing. Like a push, it attaches the package holding the
+build installed in Rhino, and that build must have been made from HEAD — so the
+order is commit and push, `install`, restart Rhino and test, then release.
 
 ```bash
-tooling/release.sh --repo script-forge --dry-run   # every check + the build; no tag, no release
+tooling/release.sh --repo script-forge --dry-run   # every check; writes nothing
 tooling/release.sh --repo script-forge             # tag, push, release
 ```
 
 **You never type a version.** `release.sh` reads it from the manifest, derives the
-tag as `TAG_PREFIX + version` (a conf key — `forge-v` here), and checks the built
-`.yak` carries it. That is the point: the tag, the commit and the asset cannot end
+tag as `TAG_PREFIX + version` (a conf key — `forge-v` here), and attaches the
+tested `.yak` named for it. That is the point: the tag, the commit and the asset cannot end
 up naming different builds. It refuses to proceed on any of:
 
 | refusal | why it matters |
@@ -247,7 +272,12 @@ up naming different builds. It refuses to proceed on any of:
 | HEAD not on origin | a release pointing at a commit nobody can fetch |
 | tag exists, points elsewhere | you are releasing from the wrong commit — never move a published tag |
 | a release already exists for the tag | re-uploading silently changes what people already have |
-| asset filename lacks the version | stale `build/yak/` output; the build did not see this version |
+| no package holds the installed build | it was rebuilt after it was installed, or never installed — only the installed build has been tested |
+| installed build not made from HEAD | the release would pair this commit with a build of another |
+
+`--dry-run` writes nothing and reports every refusal rather than stopping at the
+first, so one dry run lists everything left to fix; it exits 1 if there were any.
+`--prerelease` / `--no-prerelease` override the guess from the version suffix.
 
 Notes come from `--notes-file <f>`, or are generated from the commits if you pass
 nothing. The release title is `PRODUCT_NAME` from the conf plus the version —

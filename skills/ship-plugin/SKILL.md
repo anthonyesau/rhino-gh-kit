@@ -12,7 +12,7 @@ calls the kit's copy:
 
 | script | does | run it |
 |---|---|---|
-| `tooling/publish.sh` | validate → generate → build → package → install → push, cumulative | every build |
+| `tooling/publish.sh` | validate → generate → build → package, then install, push or push-test | every build |
 | `tooling/release.sh` | tag + GitHub Release with the `.yak` attached | releases only |
 
 ```bash
@@ -46,6 +46,15 @@ a task said "publish" or "ship" — whether a project may take that step is writ
 in that project's own `CLAUDE.md`, and in this kit's it is forbidden. Everything
 below stays local or lands on a GitHub Release.
 
+**`publish.sh push-test` uploads to McNeel's test server** (`test.yak.rhino3d.com`).
+It is the way to rehearse `push`, but it is still an upload: anyone can see the
+package until the nightly wipe, and that version cannot be pushed there again
+until then. Confirm before running it. Neither push builds: each uploads the
+package holding the build installed in Rhino and refuses if a rebuild has replaced
+it, so run `install`, restart Rhino and test first. Either push needs `yak login` run from `~`
+first — yak on macOS reads its token from `.mcneel/yak.yml` under the current
+folder, and the pipeline runs it from `$HOME`.
+
 **`install` and `release` write outside the repo** — into the Rhino packages
 folder and onto GitHub. Both are the intended everyday commands, but confirm
 before the first one in a session if the user only asked you to build. (The
@@ -59,22 +68,25 @@ carries the same `guid:` keyword.
 ## Cut a release
 
 ```bash
-tooling/release.sh --repo script-forge --dry-run   # every check + the build; no tag, no release
+tooling/release.sh --repo script-forge --dry-run   # every check; writes nothing
 tooling/release.sh --repo script-forge             # tag, push, release
 ```
 
 **You never type a version.** `release.sh` reads it from the manifest, derives the
-tag as `TAG_PREFIX + version`, and checks the built `.yak` filename carries it —
+tag as `TAG_PREFIX + version`, and attaches the tested `.yak` named for it —
 which is the whole point: the tag, the commit and the asset cannot end up naming
 different builds. Do not pass a version, do not `git tag` by hand, and do not
 reach for `gh release create` — it will invent a missing tag at whatever HEAD
 happens to be.
 
-Run `--dry-run` first. It performs every check *and* the full build, so a clean dry
-run means the real run has nothing left to fail on. It touches nothing in git and
-nothing on GitHub — but it is not inert: it writes `<repo>/build/`, and `package`
-drops the `.yak` into `$YAK_LOCAL_REPO`, so that version becomes installable
-locally whether or not you go on to release it.
+It builds nothing. The asset is the package holding the build installed in Rhino,
+which must have been built from HEAD: commit and push, `publish.sh install`,
+restart Rhino and test, then release. The pushes (`push`, `push-test`) follow the
+same rule and also build nothing.
+
+Run `--dry-run` first. It writes nothing and reports every refusal instead of
+stopping at the first, so a clean dry run means the real run has nothing left to
+fail on.
 
 Two conf keys beyond `publish.sh`'s:
 
@@ -94,7 +106,8 @@ the cause; do not work around it.
 | HEAD is not on origin | push first; a release must point at a fetchable commit |
 | tag exists, points elsewhere | release from that commit, or bump the version. **Never move a published tag.** |
 | a release already exists | bump and release that. Re-uploading silently changes what people already have. |
-| asset filename lacks the version | stale output — remove `<repo>/build/yak/` and retry |
+| no package holds the installed build | it was rebuilt after installing, or never installed: `publish.sh install`, restart Rhino, test, retry |
+| installed build made from another commit | install from HEAD, restart Rhino, test, retry |
 | version mismatch: manifest vs csproj | they are one number in two files; make them agree |
 
 ## Versions

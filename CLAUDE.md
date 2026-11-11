@@ -170,7 +170,8 @@ every path in `script-forge/tooling/publish.conf` is relative to that folder:
 tooling/publish.sh --repo script-forge build        # validate + generate + build   (no network, no install)
 tooling/publish.sh --repo script-forge              # ... + build a .yak into the local repo (the default stage)
 tooling/publish.sh --repo script-forge install      # ... + yak install it from that repo
-tooling/publish.sh --repo script-forge push         # ... + PUBLIC, permanent upload; prompts first
+tooling/publish.sh --repo script-forge push         # upload the installed, tested build: PUBLIC, permanent; prompts first
+tooling/publish.sh --repo script-forge push-test    # the same upload to McNeel's test server, wiped nightly
 ```
 
 Iterating is the fast path: edit `script-forge/script-forge.cs`

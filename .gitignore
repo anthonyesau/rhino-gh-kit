@@ -51,6 +51,10 @@ script-forge/tooling/fixture-runner/obj/
 # Claude plan scratch — local only.
 .claude/plans/
 
+# yak login token — `yak login` writes .mcneel/yak.yml under whatever folder it
+# runs from (see docs/ship-a-plugin/publishing.md). A credential, never tracked.
+.mcneel/
+
 # Per-clone Claude Code permission overrides — machine-specific, not shared.
 .claude/settings.local.json
 

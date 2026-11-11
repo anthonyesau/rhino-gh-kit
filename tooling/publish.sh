@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 #
 # The release pipeline for a compiled Grasshopper plugin built from `@component`
-# headers: validate → generate → build → package → install → push, as cumulative
-# stages. Shared by every project that compiles a .gha with `gh_codegen.py`.
+# headers: validate → generate → build → package → install, as cumulative
+# stages, and then, as separate runs, the pushes. Shared by every project that
+# compiles a .gha with `gh_codegen.py`.
 #
-#   $KIT/tooling/publish.sh --repo <path> [build|package|install|push]
+#   $KIT/tooling/publish.sh --repo <path> [build|package|install|push|push-test]
 #
 # With no stage named it runs through `package`, so every compile also leaves a
-# .yak in $YAK_LOCAL_REPO. `build` stops before packaging.
+# .yak in $YAK_LOCAL_REPO. `build` stops before packaging; `install` installs the
+# .yak. `push` uploads to the public Yak server and `push-test` to McNeel's test
+# server (https://test.yak.rhino3d.com, wiped every night), the way to rehearse a
+# push. Neither builds: each uploads the package holding the build installed in
+# Rhino, so the order is install, restart Rhino and test, then push.
 #
 # Projects do not copy this file. They keep a three-line `tooling/publish.sh`
 # wrapper that execs this one, plus `tooling/publish.conf` holding the five or so
@@ -90,8 +95,8 @@ STAGE="package"
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
-    build|package|install|push) STAGE="$1"; shift ;;
-    *) echo "usage: publish.sh [--repo <path>] [build|package|install|push]" >&2; exit 2 ;;
+    build|package|install|push|push-test) STAGE="$1"; shift ;;
+    *) echo "usage: publish.sh [--repo <path>] [build|package|install|push|push-test]" >&2; exit 2 ;;
   esac
 done
 REPO="$(cd "$REPO" && pwd)"
@@ -127,6 +132,30 @@ SUPPORT="$HOME/Library/Application Support/McNeel/Rhinoceros"
 PACKAGES="$SUPPORT/packages/$RHINO_VERSION"
 LIBRARIES="$SUPPORT/$RHINO_VERSION/Plug-ins/Grasshopper (b45a29b1-4343-4035-989e-044e8580d9cf)/Libraries"
 
+# yak keeps its login token at `.mcneel/yak.yml` relative to the CURRENT FOLDER,
+# not under ~ as McNeel's Yak docs say (measured 2026-11-11, yak 0.15.5 / Rhino
+# 8.37, macOS): `yak login` writes the file into whatever folder it runs from, and
+# `yak push` finds it only from that same folder. The push stages therefore run
+# yak from $HOME, so the one place a token can live is ~/.mcneel/yak.yml. Checked
+# here, before anything is built, so a missing login costs nothing.
+YAK_TOKEN="$HOME/.mcneel/yak.yml"
+case "$STAGE" in
+  push)      YAK_SERVER="https://yak.rhino3d.com" ;;
+  push-test) YAK_SERVER="https://test.yak.rhino3d.com" ;;
+esac
+if [ -n "${YAK_SERVER:-}" ]; then
+  [ -f "$YAK_TOKEN" ] || die "no yak login token at $YAK_TOKEN — log in from your home folder first:
+  cd ~ && \"$YAK\" login --source $YAK_SERVER"
+  # A token written into the project by a `yak login` run from there is an
+  # untracked credential in the working copy, one `git add -A` from a commit.
+  for stray in "$REPO/.mcneel/yak.yml" "$PWD/.mcneel/yak.yml"; do
+    if [ -f "$stray" ] && [ "$stray" != "$YAK_TOKEN" ]; then
+      echo "WARNING: $stray is a yak login token inside a working folder; delete it" \
+           "(the push uses $YAK_TOKEN) and git-ignore .mcneel/"
+    fi
+  done
+fi
+
 [ -f "$REPO/$MANIFEST" ] || die "no $REPO/$MANIFEST"
 PKG_NAME="$(sed -n 's/^name:[[:space:]]*//p' "$REPO/$MANIFEST" | head -1)"
 [ -n "$PKG_NAME" ] || die "$MANIFEST has no name:"
@@ -148,7 +177,69 @@ for key in authors description url; do
   grep -q "^$key:" "$REPO/$MANIFEST" || die "$MANIFEST has no $key: (Package Manager shows it blank)"
 done
 
+# Package version and assembly version must agree: the manifest is what a yak
+# repository indexes, the assembly is what Grasshopper's plugin list shows, and
+# a mismatch between them is invisible until someone tries to work out which
+# build they are running. Both are read from source, so check before building.
+MANIFEST_VERSION="$(awk '/^version:/ {print $2; exit}' "$REPO/$MANIFEST")"
+CSPROJ_VERSION="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$REPO/$CSPROJ" | head -1)"
+[ -n "$MANIFEST_VERSION" ] || die "$MANIFEST has no version:"
+[ "$MANIFEST_VERSION" = "$CSPROJ_VERSION" ] || \
+  die "version mismatch: $MANIFEST=$MANIFEST_VERSION csproj=$CSPROJ_VERSION"
+echo "version $CSPROJ_VERSION (manifest and assembly agree)"
+
 cd "$REPO"
+
+# -- Push (push, push-test) -------------------------------------------------
+# Publishing to the Yak server is PUBLIC and effectively irreversible: a version
+# can be yanked but never re-uploaded with different content. `install` gives a
+# real, versioned, upgradeable install without it, so reach for this only when
+# the intent is genuinely to distribute to strangers — and check the project's
+# own rules first, since a project may forbid it outright.
+#
+# `push-test` sends the same .yak to the test server instead. Anyone can still
+# see it there until the nightly wipe, and until then the same version cannot be
+# pushed to it again, so it prompts the same way.
+#
+# Neither push builds. They upload the package whose build is the one installed
+# in Rhino, found by tested-yak.sh, and refuse when there is none: a rebuild is a
+# different build (the commit is stamped into it), and only the installed one has
+# been tested. So the order is `install`, restart Rhino and test, then push.
+if [ -n "${YAK_SERVER:-}" ]; then
+  [ -x "$YAK" ] || die "yak not found at $YAK"
+  # shellcheck source=tested-yak.sh
+  . "$KIT/tooling/tested-yak.sh"
+  tested_yak "$PKG_NAME" "$CSPROJ_VERSION" "$GHA_NAME" "$YAK_LOCAL_REPO" "$PACKAGES" \
+    || die "$TESTED_ERROR"
+  HEAD_SHA="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)"
+  if [ -z "$TESTED_COMMIT" ]; then
+    BUILT_FROM="an unknown commit"
+  elif [ "$TESTED_COMMIT" = "$HEAD_SHA" ]; then
+    BUILT_FROM="commit ${TESTED_COMMIT:0:9} (HEAD)"
+  else
+    BUILT_FROM="commit ${TESTED_COMMIT:0:9} (HEAD is ${HEAD_SHA:0:9})"
+  fi
+
+  if [ "$STAGE" = "push-test" ]; then
+    step "Push to the TEST Yak server ($YAK_SERVER)"
+    echo "About to push $(basename "$TESTED_YAK") as $PKG_NAME $CSPROJ_VERSION to $YAK_SERVER."
+    echo "That version cannot be pushed there again until the server's nightly wipe."
+  else
+    step "Push to the PUBLIC Yak server"
+    echo "About to publish $(basename "$TESTED_YAK") as $PKG_NAME $CSPROJ_VERSION — this is public and permanent."
+  fi
+  echo "It holds the installed build, made from $BUILT_FROM."
+  read -r -p "Type the version number to confirm: " CONFIRM
+  [ "$CONFIRM" = "$CSPROJ_VERSION" ] || die "aborted"
+  # From $HOME, where yak finds the login token (see YAK_TOKEN above); the path
+  # is absolute, so the folder change costs nothing.
+  ( cd "$HOME" && "$YAK" push --source "$YAK_SERVER" "$TESTED_YAK" )
+  if [ "$STAGE" = "push-test" ]; then
+    echo "check: \"$YAK\" search --source $YAK_SERVER --all --prerelease $PKG_NAME"
+  fi
+  step "Done (pushed to $YAK_SERVER)"
+  exit 0
+fi
 
 # -- 1a. Validate filenames -------------------------------------------------
 # Outside the CODEGEN guard on purpose: the portable-charset pass is repo
@@ -198,16 +289,7 @@ fi
 # -- 3. Build ---------------------------------------------------------------
 step "Building $GHA_NAME"
 dotnet build "$REPO/$BUILD_TARGET" -c Release
-
-# Package version and assembly version must agree: the manifest is what a yak
-# repository indexes, the assembly is what Grasshopper's plugin list shows, and
-# a mismatch between them is invisible until someone tries to work out which
-# build they are running.
-MANIFEST_VERSION="$(awk '/^version:/ {print $2; exit}' "$REPO/$MANIFEST")"
-CSPROJ_VERSION="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$REPO/$CSPROJ" | head -1)"
-[ "$MANIFEST_VERSION" = "$CSPROJ_VERSION" ] || \
-  die "version mismatch: $MANIFEST=$MANIFEST_VERSION csproj=$CSPROJ_VERSION"
-echo "version $CSPROJ_VERSION (manifest and assembly agree)"
+[ -f "$BUILT" ] || die "the build produced no $BUILT"
 
 [ "$STAGE" = "build" ] && { step "Done (build only)"; exit 0; }
 
@@ -237,17 +319,25 @@ fi
 ( cd "$STAGING" && "$YAK" build --platform any )
 YAKFILE="$(find "$STAGING" -name '*.yak' -maxdepth 1 | head -1)"
 [ -n "$YAKFILE" ] || die "yak build produced no .yak"
+# yak names the file from the manifest, lowercased (ScriptForge 0.4.5-beta ->
+# scriptforge-0.4.5-beta-rh8_21-any.yak). Anything else means it packaged a
+# different manifest than the one checked above.
+PKG_LOWER="$(printf '%s' "$PKG_NAME" | tr '[:upper:]' '[:lower:]')"
+case "$(basename "$YAKFILE")" in
+  "$PKG_LOWER-$CSPROJ_VERSION-"*) ;;
+  *) die "$(basename "$YAKFILE") is not named for $PKG_NAME $CSPROJ_VERSION" ;;
+esac
 echo "built $YAKFILE"
 echo "contents:"
 unzip -l "$YAKFILE"
 
 mkdir -p "$YAK_LOCAL_REPO"
 cp "$YAKFILE" "$YAK_LOCAL_REPO/"
-echo "published (privately) -> $YAK_LOCAL_REPO/$(basename "$YAKFILE")"
+echo "packaged -> $YAK_LOCAL_REPO/$(basename "$YAKFILE")"
 
 [ "$STAGE" = "package" ] && { step "Done (packaged)"; exit 0; }
 
-# -- 5. Install -------------------------------------------------------------
+# -- 5. Install ------------------------------------------------------------
 # A yak install, from the local folder repo. Rhino still has to be restarted to
 # pick the new binary up — the file on disk changing does not swap what a
 # running instance already mapped. Verify which binary is live by reflecting on
@@ -316,17 +406,4 @@ echo "if the Package Manager entry shows blank Author/Url/Description, add"
 echo "  $YAK_LOCAL_REPO"
 echo "as a package source in Rhino (Package Manager > settings > package sources)."
 
-[ "$STAGE" = "install" ] && { step "Done (installed)"; exit 0; }
-
-# -- 6. Push ----------------------------------------------------------------
-# Publishing to the Yak server is PUBLIC and effectively irreversible: a version
-# can be yanked but never re-uploaded with different content. The stages above
-# already gave a real, versioned, upgradeable install without it, so reach for
-# this only when the intent is genuinely to distribute to strangers — and check
-# the project's own rules first, since a project may forbid it outright.
-step "Push to the PUBLIC Yak server"
-echo "About to publish $(basename "$YAKFILE") as $PKG_NAME $CSPROJ_VERSION — this is public and permanent."
-read -r -p "Type the version number to confirm: " CONFIRM
-[ "$CONFIRM" = "$CSPROJ_VERSION" ] || die "aborted"
-( cd "$STAGING" && "$YAK" push "$(basename "$YAKFILE")" )
-step "Done (pushed)"
+step "Done (installed)"

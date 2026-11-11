@@ -692,8 +692,8 @@ grammar and the generator instead.
    them is invisible until someone tries to identify which build they are running.
 10. `tooling/publish.conf` + a three-line `tooling/publish.sh` wrapper. **Do not
     write a pipeline per project** — it lives here, in `tooling/publish.sh`, and
-    runs validate → generate → build → package → install → push as cumulative
-    stages for every project alike. The two that existed before it was factored
+    runs validate → generate → build → package, then install or a push, for
+    every project alike. The two that existed before it was factored
     out had 57 executable lines each, of which 5 differed: a `.gha` name, two
     paths and one flag. Those are exactly what the conf now holds:
 
@@ -708,7 +708,9 @@ grammar and the generator instead.
     The full key list, and the reasoning behind each stage, is in that script's
     header. What the project must still decide for itself is whether `push` is ever
     allowed — write that in the project's own `CLAUDE.md`, because the pipeline
-    deliberately does not know.
+    deliberately does not know. Git-ignore `.mcneel/` too: a `yak login` run from
+    the project folder writes its token there (see
+    [publishing.md](publishing.md#the-pipeline)).
 
     Two facts the pipeline encodes, worth knowing even though it handles them:
 
